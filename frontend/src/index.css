@@ -104,6 +104,24 @@ h1, h2, h3 {
   box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45);
 }
 
+.kpi-card {
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kpi-card.active {
+  border-color: var(--indicator-color);
+  box-shadow: 0 0 0 1px var(--indicator-color), var(--glass-shadow);
+}
+
+.kpi-card:focus-visible {
+  outline: 2px solid var(--indicator-color);
+  outline-offset: 3px;
+}
+
 .glass-card::before {
   content: '';
   position: absolute;
