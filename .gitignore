@@ -1,5 +1,6 @@
 .env
 .docker-tmp/
+.cloudflare/
 .venv/
 venv/
 __pycache__/
