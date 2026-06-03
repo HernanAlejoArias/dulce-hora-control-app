@@ -40,6 +40,30 @@ def healthcheck():
 def api_healthcheck():
     return healthcheck()
 
+def _get_orden_planilla_stock() -> List[str]:
+    """Devuelve el orden de codigos definido por la planilla de stock."""
+    try:
+        import pandas as pd
+        archivos_dir = os.environ.get("DULCE_HORA_ARCHIVOS_DIR", os.path.join(os.path.dirname(__file__), "Archivos"))
+        archivo_stock = os.environ.get(
+            "DULCE_HORA_STOCK_FILE",
+            os.path.join(archivos_dir, "Stock", "Planilla de stock.xlsx")
+        )
+        if os.path.exists(archivo_stock):
+            df = pd.read_excel(archivo_stock)
+            return [str(c) for c in df.columns if str(c).isdigit()]
+    except Exception as e:
+        print(f"Error leyendo orden de planilla de stock: {e}")
+    return []
+
+def _ordenar_por_planilla(items: List[Dict[str, Any]]) -> None:
+    orden_planilla = _get_orden_planilla_stock()
+    if orden_planilla:
+        order_map = {cod: idx for idx, cod in enumerate(orden_planilla)}
+        items.sort(key=lambda x: (order_map.get(str(x.get('codigo', '')), 999999), x.get('descripcion', '')))
+    else:
+        items.sort(key=lambda x: (x.get('categoria', ''), x.get('descripcion', '')))
+
 @app.get("/api/productos")
 def get_productos():
     return load_json("productos.json")
@@ -115,13 +139,15 @@ def get_dashboard_data():
                 stats["productos_riesgo"].append({
                     "codigo": lote['codigo_producto'],
                     "descripcion": lote['descripcion_producto'],
+                    "categoria": prod.get('categoria', lote.get('categoria', '')),
                     "cantidad": lote['cantidad_actual'],
                     "dias_restantes": dias_restantes,
                     "id_lote": lote['id_lote']
                 })
         except ValueError:
             pass
-            
+
+    _ordenar_por_planilla(stats["productos_riesgo"])
     return stats
 
 @app.get("/api/config/mapeo_ventas")
@@ -286,27 +312,7 @@ def generar_pedido(dias_cobertura: int = 2, plus_porcentaje: float = 0.0):
             "unidad_bulto": "bultos"
         })
             
-    # Obtener el orden de la planilla de stock para mostrar los productos
-    orden_planilla = []
-    try:
-        import pandas as pd
-        archivos_dir = os.environ.get("DULCE_HORA_ARCHIVOS_DIR", os.path.join(os.path.dirname(__file__), "Archivos"))
-        archivo_stock = os.environ.get(
-            "DULCE_HORA_STOCK_FILE",
-            os.path.join(archivos_dir, "Stock", "Planilla de stock.xlsx")
-        )
-        if os.path.exists(archivo_stock):
-            df = pd.read_excel(archivo_stock)
-            orden_planilla = [str(c) for c in df.columns if str(c).isdigit()]
-    except Exception as e:
-        print(f"Error leyendo orden de planilla de stock: {e}")
-        
-    if orden_planilla:
-        # Ya no reemplazamos 101 por 1011
-        order_map = {cod: idx for idx, cod in enumerate(orden_planilla)}
-        resultado.sort(key=lambda x: order_map.get(x['codigo'], 999999))
-    else:
-        resultado.sort(key=lambda x: (x['categoria'], x['descripcion']))
+    _ordenar_por_planilla(resultado)
         
     return resultado
 
