@@ -1,0 +1,15 @@
+.env
+.docker-tmp/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+data/*
+!data/.gitkeep
+Archivos/*
+!Archivos/.gitkeep

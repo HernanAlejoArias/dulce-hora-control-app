@@ -1,0 +1,28 @@
+services:
+  dulce-hora-app:
+    build: .
+    image: dulce-hora-control-app:local
+    container_name: dulce-hora-control-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      DULCE_HORA_DATA_DIR: /app/data
+      DULCE_HORA_ARCHIVOS_DIR: /app/Archivos
+      DULCE_HORA_CORS_ORIGINS: "${DULCE_HORA_CORS_ORIGINS:-*}"
+    volumes:
+      - ./data:/app/data
+      - ./Archivos:/app/Archivos:ro
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: dulce-hora-cloudflared
+    restart: unless-stopped
+    depends_on:
+      dulce-hora-app:
+        condition: service_healthy
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      TUNNEL_TRANSPORT_PROTOCOL: http2
+    profiles:
+      - tunnel
