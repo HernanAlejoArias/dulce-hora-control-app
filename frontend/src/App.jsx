@@ -8,11 +8,13 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Megaphone,
-  ClipboardCheck
+  ClipboardCheck,
+  BarChart3
 } from 'lucide-react';
 import StockControl from './StockControl';
 import GeneradorPedidos from './GeneradorPedidos';
 import ConfiguradorMapeo from './ConfiguradorMapeo';
+import EconomiaInsights from './EconomiaInsights';
 import { API_URL } from './api';
 
 function App() {
@@ -240,6 +242,14 @@ function App() {
             Campanas
           </button>
           <button
+            className={`btn ${activeTab === 'economia' ? '' : 'inactive'}`}
+            style={{background: activeTab === 'economia' ? 'rgba(34, 197, 94, 0.2)' : 'transparent', color: activeTab === 'economia' ? '#86efac' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'economia' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid transparent'}}
+            onClick={() => setActiveTab('economia')}
+          >
+            <BarChart3 size={18} />
+            Economia
+          </button>
+          <button
             className={`btn ${activeTab === 'auditoria' ? '' : 'inactive'}`}
             style={{background: activeTab === 'auditoria' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'auditoria' ? '#60a5fa' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'auditoria' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent'}}
             onClick={() => setActiveTab('auditoria')}
@@ -267,6 +277,7 @@ function App() {
       </div>
 
       {activeTab === 'dashboard' && renderDashboard()}
+      {activeTab === 'economia' && <EconomiaInsights />}
       {activeTab === 'auditoria' && <StockControl />}
       {activeTab === 'pedidos' && <GeneradorPedidos />}
       {activeTab === 'config_ventas' && <ConfiguradorMapeo />}

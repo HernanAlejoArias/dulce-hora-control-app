@@ -44,11 +44,7 @@ def _get_orden_planilla_stock() -> List[str]:
     """Devuelve el orden de codigos definido por la planilla de stock."""
     try:
         import pandas as pd
-        archivos_dir = os.environ.get("DULCE_HORA_ARCHIVOS_DIR", os.path.join(os.path.dirname(__file__), "Archivos"))
-        archivo_stock = os.environ.get(
-            "DULCE_HORA_STOCK_FILE",
-            os.path.join(archivos_dir, "Stock", "Planilla de stock.xlsx")
-        )
+        archivo_stock = _get_stock_file()
         if os.path.exists(archivo_stock):
             df = pd.read_excel(archivo_stock)
             return [str(c) for c in df.columns if str(c).isdigit()]
@@ -63,6 +59,88 @@ def _ordenar_por_planilla(items: List[Dict[str, Any]]) -> None:
         items.sort(key=lambda x: (order_map.get(str(x.get('codigo', '')), 999999), x.get('descripcion', '')))
     else:
         items.sort(key=lambda x: (x.get('categoria', ''), x.get('descripcion', '')))
+
+def _get_archivos_dir() -> str:
+    return os.environ.get("DULCE_HORA_ARCHIVOS_DIR", os.path.join(os.path.dirname(__file__), "Archivos"))
+
+def _get_stock_file() -> str:
+    return os.environ.get(
+        "DULCE_HORA_STOCK_FILE",
+        os.path.join(_get_archivos_dir(), "Stock", "Planilla de stock.xlsx")
+    )
+
+def _safe_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+def _load_precios_planilla() -> Dict[str, Dict[str, Any]]:
+    precios = {}
+    archivo_precios = os.environ.get(
+        "DULCE_HORA_LISTA_PRECIOS_FILE",
+        os.path.join(_get_archivos_dir(), "DH - Listas de precios.xlsx")
+    )
+    if not os.path.exists(archivo_precios):
+        return precios
+
+    try:
+        import pandas as pd
+        xl = pd.ExcelFile(archivo_precios)
+        for sheet in xl.sheet_names:
+            df = pd.read_excel(archivo_precios, sheet_name=sheet)
+            if "Codigo" not in df.columns:
+                continue
+
+            for _, row in df.iterrows():
+                codigo = str(row.get("Codigo", "")).strip()
+                if not codigo or codigo == "nan":
+                    continue
+                if codigo.endswith(".0"):
+                    codigo = codigo[:-2]
+
+                precio_compra = _safe_float(row.get("Precio Unitario", row.get("Precio")))
+                precio_venta = _safe_float(row.get("Precio Venta"))
+                precios[codigo] = {
+                    "precio_compra": precio_compra,
+                    "precio_venta": precio_venta,
+                    "fuente": os.path.basename(archivo_precios),
+                    "sheet": sheet
+                }
+    except Exception as e:
+        print(f"Error leyendo lista de precios: {e}")
+    return precios
+
+def _calcular_promedio_ventas(movimientos: List[Dict[str, Any]]) -> Dict[str, float]:
+    mapeo_ventas = load_json("mapeo_ventas.json")
+    ventas_totales = {}
+    dias_abierto = set()
+
+    for mov in movimientos:
+        if mov.get("tipo") != "VENTA":
+            continue
+
+        cantidad = _safe_float(mov.get("cantidad")) or 0
+        if cantidad == 0:
+            continue
+
+        codigo = str(mov.get("codigo_producto", "")).strip()
+        fecha = str(mov.get("fecha", "")).split("T")[0]
+        if fecha:
+            dias_abierto.add(fecha)
+
+        cantidad_abs = abs(cantidad)
+        if codigo in mapeo_ventas:
+            distribucion = mapeo_ventas[codigo].get("distribucion", {})
+            for dest_codigo, ratio in distribucion.items():
+                ventas_totales[dest_codigo] = ventas_totales.get(dest_codigo, 0) + (cantidad_abs * ratio)
+        else:
+            ventas_totales[codigo] = ventas_totales.get(codigo, 0) + cantidad_abs
+
+    cant_dias = len(dias_abierto) if dias_abierto else 1
+    return {codigo: total / cant_dias for codigo, total in ventas_totales.items()}
 
 @app.get("/api/productos")
 def get_productos():
@@ -200,6 +278,124 @@ def get_stock_comparativo():
     # Ordenar por categoria y luego descripcion
     resultado.sort(key=lambda x: (x['categoria'], x['descripcion']))
     return resultado
+
+@app.get("/api/insights/equilibrio")
+def get_equilibrio_insights(costo_fijo_mensual: float = 0.0, dias_periodo: int = 30):
+    productos = load_json("productos.json")
+    movimientos = load_json("movimientos_stock.json")
+    precios_planilla = _load_precios_planilla()
+    promedio_diario = _calcular_promedio_ventas(movimientos)
+
+    dias_periodo = max(1, min(dias_periodo, 365))
+    costo_fijo_mensual = max(0.0, costo_fijo_mensual)
+
+    resultado = []
+    resumen = {
+        "costo_fijo_mensual": costo_fijo_mensual,
+        "dias_periodo": dias_periodo,
+        "productos_con_precio_venta": 0,
+        "productos_con_costo": 0,
+        "productos_con_margen": 0,
+        "productos_sin_precio": 0,
+        "productos_margen_negativo": 0,
+        "ingreso_estimado": 0.0,
+        "cogs_estimado": 0.0,
+        "contribucion_estimada": 0.0,
+        "margen_bruto_pct": None,
+        "punto_equilibrio_ingresos": None,
+        "cobertura_costo_fijo_pct": None
+    }
+
+    for prod in productos:
+        if not prod.get("activo", True):
+            continue
+
+        codigo = str(prod.get("codigo_producto", "")).strip()
+        precios = precios_planilla.get(codigo, {})
+        costo_planilla = _safe_float(precios.get("precio_compra"))
+        venta_planilla = _safe_float(precios.get("precio_venta"))
+        costo_catalogo = _safe_float(prod.get("precio_compra"))
+        venta_catalogo = _safe_float(prod.get("precio_venta"))
+        costo = costo_planilla if costo_planilla is not None else costo_catalogo
+        precio_venta = venta_planilla if venta_planilla is not None else venta_catalogo
+        fuente_precios = precios.get("fuente") if (costo_planilla is not None or venta_planilla is not None) else "productos.json"
+
+        prom_dia = promedio_diario.get(codigo, 0.0)
+        ventas_periodo = prom_dia * dias_periodo
+        margen_unitario = None
+        margen_pct = None
+        ingreso_estimado = None
+        cogs_estimado = None
+        contribucion_estimada = None
+        unidades_equilibrio = None
+        cobertura_equilibrio_pct = None
+        estado = "sin_precio"
+
+        if costo is not None:
+            resumen["productos_con_costo"] += 1
+        if precio_venta is not None:
+            resumen["productos_con_precio_venta"] += 1
+
+        if costo is not None and precio_venta is not None and precio_venta > 0:
+            margen_unitario = precio_venta - costo
+            margen_pct = (margen_unitario / precio_venta) * 100
+            ingreso_estimado = ventas_periodo * precio_venta
+            cogs_estimado = ventas_periodo * costo
+            contribucion_estimada = ventas_periodo * margen_unitario
+            resumen["ingreso_estimado"] += ingreso_estimado
+            resumen["cogs_estimado"] += cogs_estimado
+            resumen["contribucion_estimada"] += contribucion_estimada
+
+            if margen_unitario > 0:
+                resumen["productos_con_margen"] += 1
+                unidades_equilibrio = costo_fijo_mensual / margen_unitario if costo_fijo_mensual else None
+                cobertura_equilibrio_pct = (ventas_periodo / unidades_equilibrio) * 100 if unidades_equilibrio else None
+                estado = "rentable" if prom_dia > 0 else "sin_ventas"
+            else:
+                resumen["productos_margen_negativo"] += 1
+                estado = "margen_negativo"
+        else:
+            resumen["productos_sin_precio"] += 1
+
+        resultado.append({
+            "codigo": codigo,
+            "descripcion": prod.get("descripcion", ""),
+            "categoria": prod.get("categoria", ""),
+            "precio_compra": round(costo, 2) if costo is not None else None,
+            "precio_venta": round(precio_venta, 2) if precio_venta is not None else None,
+            "margen_unitario": round(margen_unitario, 2) if margen_unitario is not None else None,
+            "margen_pct": round(margen_pct, 1) if margen_pct is not None else None,
+            "promedio_diario": round(prom_dia, 2),
+            "ventas_periodo": round(ventas_periodo, 1),
+            "ingreso_estimado": round(ingreso_estimado, 2) if ingreso_estimado is not None else None,
+            "cogs_estimado": round(cogs_estimado, 2) if cogs_estimado is not None else None,
+            "contribucion_estimada": round(contribucion_estimada, 2) if contribucion_estimada is not None else None,
+            "unidades_equilibrio": round(unidades_equilibrio, 1) if unidades_equilibrio is not None else None,
+            "cobertura_equilibrio_pct": round(cobertura_equilibrio_pct, 1) if cobertura_equilibrio_pct is not None else None,
+            "fuente_precios": fuente_precios if (costo is not None or precio_venta is not None) else None,
+            "estado": estado
+        })
+
+    if resumen["ingreso_estimado"] > 0:
+        margen_bruto_pct = (resumen["contribucion_estimada"] / resumen["ingreso_estimado"]) * 100
+        resumen["margen_bruto_pct"] = round(margen_bruto_pct, 1)
+        if margen_bruto_pct > 0 and costo_fijo_mensual:
+            resumen["punto_equilibrio_ingresos"] = round(costo_fijo_mensual / (margen_bruto_pct / 100), 2)
+            resumen["cobertura_costo_fijo_pct"] = round((resumen["contribucion_estimada"] / costo_fijo_mensual) * 100, 1)
+
+    for key in ["ingreso_estimado", "cogs_estimado", "contribucion_estimada"]:
+        resumen[key] = round(resumen[key], 2)
+
+    resultado.sort(key=lambda x: (
+        x["contribucion_estimada"] is None,
+        -(x["contribucion_estimada"] or 0),
+        x["descripcion"]
+    ))
+
+    return {
+        "resumen": resumen,
+        "productos": resultado
+    }
 
 @app.get("/api/generar_pedido")
 def generar_pedido(dias_cobertura: int = 2, plus_porcentaje: float = 0.0):
