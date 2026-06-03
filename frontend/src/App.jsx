@@ -9,7 +9,9 @@ import {
   ShoppingCart,
   Megaphone,
   ClipboardCheck,
-  BarChart3
+  BarChart3,
+  Menu,
+  X
 } from 'lucide-react';
 import StockControl from './StockControl';
 import GeneradorPedidos from './GeneradorPedidos';
@@ -21,6 +23,7 @@ function App() {
   const [dashboard, setDashboard] = useState(null);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [dashboardFilter, setDashboardFilter] = useState('all');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     fetchDashboard();
@@ -208,19 +211,49 @@ function App() {
     );
   };
 
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setSidebarOpen(false);
+  };
+
   return (
-    <div className="app-container">
+    <div className={`app-container ${sidebarOpen ? 'sidebar-open' : ''}`}>
+      <button
+        type="button"
+        className="mobile-menu-btn"
+        onClick={() => setSidebarOpen(true)}
+        aria-label="Abrir menu"
+      >
+        <Menu size={22} />
+      </button>
+      <button
+        type="button"
+        className="sidebar-overlay"
+        onClick={() => setSidebarOpen(false)}
+        aria-label="Cerrar menu"
+      />
+
       <div className="sidebar">
-        <h2 style={{ color: 'white', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+        <div className="sidebar-header">
+          <h2 style={{ color: 'white', display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
           <Package color="#3b82f6"/>
           Dulce Hora
         </h2>
+          <button
+            type="button"
+            className="sidebar-close"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Cerrar menu"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div className="sidebar-nav">
           <button
             className={`btn ${activeTab === 'dashboard' ? '' : 'inactive'}`}
             style={{background: activeTab === 'dashboard' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'dashboard' ? '#60a5fa' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'dashboard' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent'}}
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => handleTabChange('dashboard')}
           >
             <LayoutDashboard size={18} />
             Dashboard
@@ -244,7 +277,7 @@ function App() {
           <button
             className={`btn ${activeTab === 'economia' ? '' : 'inactive'}`}
             style={{background: activeTab === 'economia' ? 'rgba(34, 197, 94, 0.2)' : 'transparent', color: activeTab === 'economia' ? '#86efac' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'economia' ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid transparent'}}
-            onClick={() => setActiveTab('economia')}
+            onClick={() => handleTabChange('economia')}
           >
             <BarChart3 size={18} />
             Economia
@@ -252,7 +285,7 @@ function App() {
           <button
             className={`btn ${activeTab === 'auditoria' ? '' : 'inactive'}`}
             style={{background: activeTab === 'auditoria' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'auditoria' ? '#60a5fa' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'auditoria' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent'}}
-            onClick={() => setActiveTab('auditoria')}
+            onClick={() => handleTabChange('auditoria')}
           >
             <ClipboardCheck size={18} />
             Control Stock
@@ -260,7 +293,7 @@ function App() {
           <button
             className={`btn ${activeTab === 'pedidos' ? '' : 'inactive'}`}
             style={{background: activeTab === 'pedidos' ? 'rgba(234, 179, 8, 0.2)' : 'transparent', color: activeTab === 'pedidos' ? '#facc15' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'pedidos' ? '1px solid rgba(234, 179, 8, 0.4)' : '1px solid transparent'}}
-            onClick={() => setActiveTab('pedidos')}
+            onClick={() => handleTabChange('pedidos')}
           >
             <ShoppingCart size={18} />
             Generar Pedido
@@ -268,7 +301,7 @@ function App() {
           <button
             className={`btn ${activeTab === 'config_ventas' ? '' : 'inactive'}`}
             style={{background: activeTab === 'config_ventas' ? 'rgba(236, 72, 153, 0.2)' : 'transparent', color: activeTab === 'config_ventas' ? '#f472b6' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'config_ventas' ? '1px solid rgba(236, 72, 153, 0.4)' : '1px solid transparent'}}
-            onClick={() => setActiveTab('config_ventas')}
+            onClick={() => handleTabChange('config_ventas')}
           >
             <ClipboardCheck size={18} />
             Config. Ventas
