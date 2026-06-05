@@ -139,7 +139,9 @@ export default function StockControl() {
             className="btn"
             onClick={() => runAction('entradas', '/stock_control/procesar_entradas', data => {
               const count = data.procesados?.length || 0;
-              return count ? `Entradas procesadas: ${count}.` : 'No habia entradas nuevas para procesar.';
+              const blocked = data.bloqueados?.length || 0;
+              if (count || blocked) return `Entradas procesadas: ${count}. Bloqueadas por fecha de conteo: ${blocked}.`;
+              return 'No habia entradas nuevas para procesar.';
             })}
             disabled={!!processing}
           >
@@ -167,6 +169,15 @@ export default function StockControl() {
         <div className="glass-card" style={{ marginBottom: '1rem', color: message.includes('Error') || message.includes('No se pudo') ? '#fca5a5' : '#86efac' }}>
           {message.includes('Error') || message.includes('No se pudo') ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
           <span style={{ marginLeft: '0.5rem' }}>{message}</span>
+        </div>
+      )}
+
+      {status?.entradas?.bloqueadas?.length > 0 && (
+        <div className="glass-card" style={{ marginBottom: '1rem', color: '#fbbf24' }}>
+          <AlertTriangle size={18} />
+          <span style={{ marginLeft: '0.5rem' }}>
+            Entradas bloqueadas: {status.entradas.bloqueadas.length}. Hay stock con fecha de corte {status.entradas.fecha_corte_stock}; solo se permiten entradas de ese dia o posteriores.
+          </span>
         </div>
       )}
 

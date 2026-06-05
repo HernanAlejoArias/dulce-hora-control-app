@@ -206,6 +206,15 @@ def load_latest_stock_count() -> Dict[str, Any] | None:
     }
 
 
+def _stock_cutoff_date(state: Dict[str, Any] | None = None) -> str | None:
+    state = state or load_process_state()
+    fechas = set(state["conteo_stock"]["processed_dates"].keys())
+    latest_count = load_latest_stock_count()
+    if latest_count and latest_count.get("fecha"):
+        fechas.add(latest_count["fecha"])
+    return sorted(fechas)[-1] if fechas else None
+
+
 def get_conteo_planilla() -> Dict[str, Any]:
     productos = load_json("productos.json")
     prod_dict = {str(p.get("codigo_producto")): p for p in productos if p.get("activo", True)}
@@ -409,6 +418,7 @@ def list_delivery_files() -> List[Dict[str, Any]]:
     entregas_dir = os.path.join(_archivos_dir(), "Entregas")
     state = load_process_state()
     processed = state["entradas"]["processed_files"]
+    cutoff = _stock_cutoff_date(state)
     if not os.path.isdir(entregas_dir):
         return []
     files = []
@@ -417,6 +427,8 @@ def list_delivery_files() -> List[Dict[str, Any]]:
             continue
         info = _parse_delivery_file(os.path.join(entregas_dir, name))
         info["procesado"] = name in processed
+        info["bloqueado_por_conteo"] = bool(cutoff and info["fecha"] < cutoff and not info["procesado"])
+        info["fecha_corte_stock"] = cutoff
         files.append(info)
     return files
 
@@ -426,10 +438,19 @@ def procesar_entradas() -> Dict[str, Any]:
     processed = state["entradas"]["processed_files"]
     procesados = []
     omitidos = []
+    bloqueados = []
     for info in list_delivery_files():
         archivo = info["archivo"]
         if archivo in processed:
             omitidos.append(archivo)
+            continue
+        if info.get("bloqueado_por_conteo"):
+            bloqueados.append({
+                "archivo": archivo,
+                "fecha": info["fecha"],
+                "fecha_corte_stock": info.get("fecha_corte_stock"),
+                "motivo": "La entrega es anterior al ultimo conteo de stock.",
+            })
             continue
         if not info["items"]:
             omitidos.append(archivo)
@@ -444,7 +465,7 @@ def procesar_entradas() -> Dict[str, Any]:
         state["entradas"]["last_processed_date"] = info["fecha"]
         procesados.append(processed[archivo] | {"archivo": archivo})
     save_process_state(state)
-    return {"status": "ok", "procesados": procesados, "omitidos": omitidos}
+    return {"status": "ok", "procesados": procesados, "omitidos": omitidos, "bloqueados": bloqueados}
 
 
 def _sales_rows() -> List[Dict[str, Any]]:
@@ -604,6 +625,8 @@ def get_stock_workflow_status() -> Dict[str, Any]:
     waste_files = _waste_files()
     ventas_processed = state["ventas"]["processed_dates"]
     waste_processed = state["desperdicio"]["processed_files"]
+    entradas_pendientes = [d for d in deliveries if not d["procesado"] and not d.get("bloqueado_por_conteo")]
+    entradas_bloqueadas = [d for d in deliveries if d.get("bloqueado_por_conteo")]
     return {
         "stock_actual": {
             "productos_con_stock": sum(1 for qty in stock.values() if qty > 0),
@@ -611,9 +634,11 @@ def get_stock_workflow_status() -> Dict[str, Any]:
         },
         "conteo": conteo,
         "entradas": {
-            "pendientes": [d for d in deliveries if not d["procesado"]],
+            "pendientes": entradas_pendientes,
+            "bloqueadas": entradas_bloqueadas,
             "procesadas": [d for d in deliveries if d["procesado"]],
             "ultima_fecha_procesada": state["entradas"]["last_processed_date"],
+            "fecha_corte_stock": _stock_cutoff_date(state),
         },
         "ventas_desperdicio": {
             "ventas_pendientes": [r for r in sales_rows if r["fecha"] not in ventas_processed],
