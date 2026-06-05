@@ -270,8 +270,9 @@ def stock_control_procesar_conteo():
     return result
 
 @app.post("/api/stock_control/procesar_entradas")
-def stock_control_procesar_entradas():
-    return procesar_entradas()
+def stock_control_procesar_entradas(payload: Dict[str, Any] | None = None):
+    archivos = payload.get("archivos") if payload else None
+    return procesar_entradas(archivos)
 
 @app.post("/api/stock_control/procesar_ventas_desperdicio")
 def stock_control_procesar_ventas_desperdicio():

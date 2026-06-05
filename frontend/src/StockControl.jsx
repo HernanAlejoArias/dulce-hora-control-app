@@ -21,6 +21,7 @@ export default function StockControl() {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState('');
   const [message, setMessage] = useState('');
+  const [selectedDeliveries, setSelectedDeliveries] = useState([]);
 
   useEffect(() => {
     refreshAll();
@@ -35,6 +36,10 @@ export default function StockControl() {
       ]);
       setStock(stockRes.data);
       setStatus(statusRes.data);
+      setSelectedDeliveries(prev => {
+        const available = statusRes.data.entradas?.pendientes?.map(item => item.archivo) || [];
+        return prev.filter(file => available.includes(file));
+      });
     } catch (err) {
       console.error(err);
       setMessage('Error cargando Control Stock.');
@@ -56,11 +61,11 @@ export default function StockControl() {
     setLoading(false);
   };
 
-  const runAction = async (key, url, successText) => {
+  const runAction = async (key, url, successText, payload = undefined) => {
     setProcessing(key);
     setMessage('');
     try {
-      const res = await axios.post(`${API_URL}${url}`);
+      const res = await axios.post(`${API_URL}${url}`, payload);
       setMessage(successText(res.data));
       setConteo(null);
       await refreshAll();
@@ -87,6 +92,16 @@ export default function StockControl() {
   }, [stock]);
 
   const totalStock = status?.stock_actual?.unidades_totales ?? stock.reduce((acc, item) => acc + Number(item.stock_teorico || 0), 0);
+  const pendingDeliveries = status?.entradas?.pendientes || [];
+  const selectedDeliverySet = new Set(selectedDeliveries);
+
+  const toggleDelivery = (archivo) => {
+    setSelectedDeliveries(prev => (
+      prev.includes(archivo)
+        ? prev.filter(item => item !== archivo)
+        : [...prev, archivo]
+    ));
+  };
 
   if (loading && !status) return <div className="main-content">Cargando Control Stock...</div>;
 
@@ -139,11 +154,9 @@ export default function StockControl() {
             className="btn"
             onClick={() => runAction('entradas', '/stock_control/procesar_entradas', data => {
               const count = data.procesados?.length || 0;
-              const blocked = data.bloqueados?.length || 0;
-              if (count || blocked) return `Entradas procesadas: ${count}. Bloqueadas por fecha de conteo: ${blocked}.`;
-              return 'No habia entradas nuevas para procesar.';
-            })}
-            disabled={!!processing}
+              return count ? `Entradas procesadas: ${count}.` : 'No se proceso ninguna entrada.';
+            }, { archivos: selectedDeliveries })}
+            disabled={!!processing || selectedDeliveries.length === 0}
           >
             <PackageCheck size={18} className={processing === 'entradas' ? 'spin' : ''} />
             Procesar Entrada
@@ -172,14 +185,47 @@ export default function StockControl() {
         </div>
       )}
 
-      {status?.entradas?.bloqueadas?.length > 0 && (
-        <div className="glass-card" style={{ marginBottom: '1rem', color: '#fbbf24' }}>
-          <AlertTriangle size={18} />
-          <span style={{ marginLeft: '0.5rem' }}>
-            Entradas bloqueadas: {status.entradas.bloqueadas.length}. Hay stock con fecha de corte {formatDate(status.entradas.fecha_corte_stock)}; solo se permiten entradas de ese dia o posteriores.
-          </span>
+      <div className="glass-card" style={{ marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: pendingDeliveries.length ? '1rem' : 0 }}>
+          <div>
+            <h2 style={{ marginBottom: '0.35rem' }}>Pedidos disponibles</h2>
+            <p style={{ color: 'var(--text-muted)' }}>
+              Selecciona que entradas queres usar. Fecha de corte stock: {formatDate(status?.entradas?.fecha_corte_stock)}
+            </p>
+          </div>
+          {pendingDeliveries.length > 0 && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                const allSelected = pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo));
+                setSelectedDeliveries(allSelected ? [] : pendingDeliveries.map(item => item.archivo));
+              }}
+            >
+              {pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo)) ? 'Limpiar seleccion' : 'Seleccionar todos'}
+            </button>
+          )}
         </div>
-      )}
+        {pendingDeliveries.length === 0 ? (
+          <p style={{ color: 'var(--text-muted)' }}>No hay pedidos nuevos disponibles para procesar.</p>
+        ) : (
+          <div className="delivery-list">
+            {pendingDeliveries.map(item => (
+              <label className="delivery-option" key={item.archivo}>
+                <input
+                  type="checkbox"
+                  checked={selectedDeliverySet.has(item.archivo)}
+                  onChange={() => toggleDelivery(item.archivo)}
+                />
+                <span>
+                  <strong>{item.archivo}</strong>
+                  <small>{formatDate(item.fecha)} | {item.items?.length || 0} productos</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
 
       {activeView === 'conteo' && conteo ? (
         <>

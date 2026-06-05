@@ -433,14 +433,17 @@ def list_delivery_files() -> List[Dict[str, Any]]:
     return files
 
 
-def procesar_entradas() -> Dict[str, Any]:
+def procesar_entradas(archivos_seleccionados: List[str] | None = None) -> Dict[str, Any]:
     state = load_process_state()
     processed = state["entradas"]["processed_files"]
+    seleccion = set(archivos_seleccionados) if archivos_seleccionados is not None else None
     procesados = []
     omitidos = []
     bloqueados = []
     for info in list_delivery_files():
         archivo = info["archivo"]
+        if seleccion is not None and archivo not in seleccion:
+            continue
         if archivo in processed:
             omitidos.append(archivo)
             continue

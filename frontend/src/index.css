@@ -276,6 +276,38 @@ tr:hover {
   margin-bottom: 0.75rem;
 }
 
+.delivery-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.delivery-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.delivery-option input {
+  width: 20px;
+  height: 20px;
+}
+
+.delivery-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.delivery-option small {
+  color: var(--text-muted);
+}
+
 @media (max-width: 900px) {
   .app-container {
     display: block;
