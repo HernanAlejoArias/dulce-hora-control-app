@@ -16,6 +16,10 @@ from .product_logic import (
 )
 
 STATE_FILE = "proceso_stock_state.json"
+DELIVERY_FILENAME_RE = re.compile(
+    r"^Planilla de pedido Banfield\s*-\s*(\d{1,2})_(\d{1,2})_(\d{4})(?:\.[^.]+)?$",
+    re.IGNORECASE,
+)
 
 
 def _archivos_dir() -> str:
@@ -99,11 +103,18 @@ def _infer_processed_state(state: Dict[str, Any]) -> Dict[str, Any]:
     for section, collection_key in [
         ("conteo_stock", "processed_dates"),
         ("ventas", "processed_dates"),
-        ("entradas", "processed_files"),
         ("desperdicio", "processed_files"),
     ]:
         keys = sorted(state[section][collection_key].keys())
         state[section]["last_processed_date"] = keys[-1] if keys else state[section].get("last_processed_date")
+
+    entrada_fechas = [
+        info.get("fecha")
+        for info in state["entradas"]["processed_files"].values()
+        if isinstance(info, dict) and info.get("fecha")
+    ]
+    if entrada_fechas:
+        state["entradas"]["last_processed_date"] = sorted(entrada_fechas)[-1]
 
     return state
 
@@ -459,11 +470,13 @@ def procesar_conteo_stock(forzar: bool = False) -> Dict[str, Any]:
 
 def _delivery_date_from_filename(path: str) -> datetime:
     filename = os.path.basename(path)
-    match = re.search(r"(\d{1,2})_(\d{1,2})_(\d{4})", filename)
-    if match:
-        day, month, year = match.groups()
-        return datetime(int(year), int(month), int(day))
-    return datetime.fromtimestamp(os.path.getmtime(path))
+    match = DELIVERY_FILENAME_RE.match(filename)
+    if not match:
+        raise ValueError(
+            "El archivo de pedido debe llamarse 'Planilla de pedido Banfield - d_m_aaaa.xlsx'."
+        )
+    day, month, year = match.groups()
+    return datetime(int(year), int(month), int(day))
 
 
 def _parse_delivery_file(path: str) -> Dict[str, Any]:
@@ -494,7 +507,9 @@ def list_delivery_files() -> List[Dict[str, Any]]:
         return []
     files = []
     for name in sorted(os.listdir(entregas_dir)):
-        if not name.lower().endswith(".xlsx"):
+        if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
+            continue
+        if not DELIVERY_FILENAME_RE.match(name):
             continue
         info = _parse_delivery_file(os.path.join(entregas_dir, name))
         info["procesado"] = name in processed
