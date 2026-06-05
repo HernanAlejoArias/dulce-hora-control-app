@@ -10,7 +10,7 @@ const qty = (value) => {
 
 const formatDate = (value) => {
   if (!value) return '-';
-  return value;
+  return String(value).replaceAll('-', '');
 };
 
 export default function StockControl() {
@@ -176,7 +176,7 @@ export default function StockControl() {
         <div className="glass-card" style={{ marginBottom: '1rem', color: '#fbbf24' }}>
           <AlertTriangle size={18} />
           <span style={{ marginLeft: '0.5rem' }}>
-            Entradas bloqueadas: {status.entradas.bloqueadas.length}. Hay stock con fecha de corte {status.entradas.fecha_corte_stock}; solo se permiten entradas de ese dia o posteriores.
+            Entradas bloqueadas: {status.entradas.bloqueadas.length}. Hay stock con fecha de corte {formatDate(status.entradas.fecha_corte_stock)}; solo se permiten entradas de ese dia o posteriores.
           </span>
         </div>
       )}
