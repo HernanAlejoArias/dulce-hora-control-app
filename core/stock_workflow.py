@@ -56,6 +56,7 @@ def _empty_state() -> Dict[str, Any]:
         "entradas": {"processed_files": {}, "last_processed_date": None},
         "ventas": {"processed_dates": {}, "last_processed_date": None},
         "desperdicio": {"processed_files": {}, "last_processed_date": None},
+        "restauracion_stock": {"last_restored_at": None, "last_restored_count_date": None},
     }
 
 
@@ -74,24 +75,36 @@ def _ensure_state_shape(state: Dict[str, Any]) -> Dict[str, Any]:
 
 def _infer_processed_state(state: Dict[str, Any]) -> Dict[str, Any]:
     movimientos = load_json("movimientos_stock.json")
+    _hydrate_restore_info_from_forced_count(state)
+    restore_at = _parse_datetime_value(state["restauracion_stock"].get("last_restored_at"))
+    restore_count_date = _normalize_date_key(state["restauracion_stock"].get("last_restored_count_date"))
     for mov in movimientos:
         tipo = mov.get("tipo")
         archivo = mov.get("archivo_origen")
         obs = mov.get("observacion") or ""
+        mov_dt = _parse_datetime_value(mov.get("fecha"))
 
         if tipo == "RECEPCION" and archivo:
+            entrega_fecha = _delivery_date_from_filename_safe(archivo)
+            if _should_ignore_inferred_process(entrega_fecha, mov_dt, restore_count_date, restore_at):
+                continue
             state["entradas"]["processed_files"].setdefault(archivo, {"inferido": True})
 
         if tipo == "VENTA":
             match = re.search(r"Venta del (\d{4}-\d{2}-\d{2})", obs)
             if match:
                 fecha = match.group(1)
+                if _should_ignore_inferred_process(fecha, mov_dt, restore_count_date, restore_at):
+                    continue
                 state["ventas"]["processed_dates"].setdefault(fecha, {"inferido": True})
 
         if tipo == "DESPERDICIO":
             match = re.search(r"Desperdicio txt (\d{8})", obs)
             if match:
                 archivo_txt = f"{match.group(1)}.txt"
+                fecha = _normalize_date_key(match.group(1))
+                if _should_ignore_inferred_process(fecha, mov_dt, restore_count_date, restore_at):
+                    continue
                 state["desperdicio"]["processed_files"].setdefault(archivo_txt, {"inferido": True})
 
         if tipo in {"AJUSTE_POSITIVO", "AJUSTE_NEGATIVO"}:
@@ -126,6 +139,123 @@ def load_process_state() -> Dict[str, Any]:
 
 def save_process_state(state: Dict[str, Any]) -> None:
     save_json(STATE_FILE, _ensure_state_shape(state))
+
+
+def _parse_datetime_value(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _normalize_date_key(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    if not value:
+        return None
+    text = str(value).strip()
+    if re.fullmatch(r"\d{8}", text):
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    return None
+
+
+def _delivery_date_from_filename_safe(filename: str) -> str | None:
+    match = DELIVERY_FILENAME_RE.match(os.path.basename(filename))
+    if not match:
+        return None
+    day, month, year = match.groups()
+    return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+
+
+def _should_ignore_inferred_process(
+    process_date: str | None,
+    movement_dt: datetime | None,
+    restore_count_date: str | None,
+    restore_at: datetime | None,
+) -> bool:
+    if not process_date or not movement_dt or not restore_count_date or not restore_at:
+        return False
+    return process_date >= restore_count_date and movement_dt <= restore_at
+
+
+def _hydrate_restore_info_from_forced_count(state: Dict[str, Any]) -> None:
+    if state["restauracion_stock"].get("last_restored_at"):
+        return
+
+    forced = []
+    for fecha, info in state["conteo_stock"]["processed_dates"].items():
+        if not isinstance(info, dict) or not info.get("forzado") or not info.get("processed_at"):
+            continue
+        processed_at = _parse_datetime_value(info.get("processed_at"))
+        fecha_key = _normalize_date_key(fecha)
+        if processed_at and fecha_key:
+            forced.append((processed_at, fecha_key))
+
+    if not forced:
+        return
+
+    restored_at, count_date = sorted(forced, key=lambda item: item[0])[-1]
+    state["restauracion_stock"] = {
+        "last_restored_at": restored_at.isoformat(),
+        "last_restored_count_date": count_date,
+    }
+    _clear_reprocess_flags_after_restore(state, count_date)
+
+
+def _recompute_last_processed_dates(state: Dict[str, Any]) -> None:
+    entradas_fechas = [
+        info.get("fecha") or _delivery_date_from_filename_safe(archivo)
+        for archivo, info in state["entradas"]["processed_files"].items()
+        if isinstance(info, dict)
+    ]
+    entradas_fechas = [fecha for fecha in entradas_fechas if fecha]
+    state["entradas"]["last_processed_date"] = sorted(entradas_fechas)[-1] if entradas_fechas else None
+
+    ventas_fechas = sorted(state["ventas"]["processed_dates"].keys())
+    state["ventas"]["last_processed_date"] = ventas_fechas[-1] if ventas_fechas else None
+
+    desperdicio_fechas = [
+        _normalize_date_key(info.get("fecha")) or _normalize_date_key(archivo.replace(".txt", ""))
+        for archivo, info in state["desperdicio"]["processed_files"].items()
+        if isinstance(info, dict)
+    ]
+    desperdicio_fechas = [fecha for fecha in desperdicio_fechas if fecha]
+    state["desperdicio"]["last_processed_date"] = sorted(desperdicio_fechas)[-1] if desperdicio_fechas else None
+
+
+def _clear_reprocess_flags_after_restore(state: Dict[str, Any], count_date: str) -> Dict[str, List[str]]:
+    removed = {"entradas": [], "ventas": [], "desperdicio": []}
+
+    for archivo, info in list(state["entradas"]["processed_files"].items()):
+        fecha = info.get("fecha") if isinstance(info, dict) else None
+        fecha = _normalize_date_key(fecha) or _delivery_date_from_filename_safe(archivo)
+        if fecha and fecha >= count_date:
+            del state["entradas"]["processed_files"][archivo]
+            removed["entradas"].append(archivo)
+
+    for fecha in list(state["ventas"]["processed_dates"].keys()):
+        fecha_key = _normalize_date_key(fecha)
+        if fecha_key and fecha_key >= count_date:
+            del state["ventas"]["processed_dates"][fecha]
+            removed["ventas"].append(fecha)
+
+    for archivo, info in list(state["desperdicio"]["processed_files"].items()):
+        fecha = info.get("fecha") if isinstance(info, dict) else None
+        fecha = _normalize_date_key(fecha) or _normalize_date_key(archivo.replace(".txt", ""))
+        if fecha and fecha >= count_date:
+            del state["desperdicio"]["processed_files"][archivo]
+            removed["desperdicio"].append(archivo)
+
+    _recompute_last_processed_dates(state)
+    return removed
 
 
 def _safe_float(value: Any) -> float | None:
@@ -447,8 +577,17 @@ def procesar_conteo_stock(forzar: bool = False) -> Dict[str, Any]:
     save_json("stock_lotes.json", lotes)
     save_json("movimientos_stock.json", movimientos)
 
+    processed_at = datetime.now().isoformat()
+    reprocess_flags_cleared = {"entradas": [], "ventas": [], "desperdicio": []}
+    if forzar:
+        state["restauracion_stock"] = {
+            "last_restored_at": processed_at,
+            "last_restored_count_date": fecha,
+        }
+        reprocess_flags_cleared = _clear_reprocess_flags_after_restore(state, fecha)
+
     state["conteo_stock"]["processed_dates"][fecha] = {
-        "processed_at": datetime.now().isoformat(),
+        "processed_at": processed_at,
         "archivo": archivo,
         "ajustes_positivos": _format_qty(total_pos),
         "ajustes_negativos": _format_qty(total_neg),
@@ -465,6 +604,7 @@ def procesar_conteo_stock(forzar: bool = False) -> Dict[str, Any]:
         "ajustes_positivos": _format_qty(total_pos),
         "ajustes_negativos": _format_qty(total_neg),
         "forzado": forzar,
+        "flags_liberados": reprocess_flags_cleared,
     }
 
 
