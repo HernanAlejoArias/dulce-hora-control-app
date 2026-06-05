@@ -338,6 +338,56 @@ tr:hover {
   text-align: right;
 }
 
+.cashflow-form {
+  margin-bottom: 2rem;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.form-grid input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0.65rem 0.75rem;
+  color: var(--text-main);
+  background: rgba(15, 23, 42, 0.72);
+  border: var(--glass-border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.form-grid input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.55);
+  outline-offset: 2px;
+}
+
+.form-wide {
+  grid-column: span 2;
+}
+
+.cashflow-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 0.85fr);
+  gap: 1.5rem;
+}
+
+.compact-table table {
+  min-width: 320px;
+}
+
 @media (max-width: 900px) {
   .app-container {
     display: block;
@@ -468,6 +518,14 @@ tr:hover {
     flex: 1 1 220px;
     justify-content: center;
   }
+
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cashflow-layout {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {
@@ -504,5 +562,13 @@ tr:hover {
   .stock-actions .btn {
     width: 100%;
     flex-basis: 100%;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-wide {
+    grid-column: auto;
   }
 }

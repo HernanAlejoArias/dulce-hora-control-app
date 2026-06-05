@@ -12,7 +12,7 @@ services:
       DULCE_HORA_CORS_ORIGINS: "${DULCE_HORA_CORS_ORIGINS:-*}"
     volumes:
       - ./data:/app/data
-      - ./Archivos:/app/Archivos:ro
+      - ./Archivos:/app/Archivos
 
   cloudflared:
     image: cloudflare/cloudflared:latest

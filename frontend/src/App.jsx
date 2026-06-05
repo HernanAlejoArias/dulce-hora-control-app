@@ -10,6 +10,7 @@ import {
   Megaphone,
   ClipboardCheck,
   BarChart3,
+  WalletCards,
   Menu,
   X
 } from 'lucide-react';
@@ -17,6 +18,7 @@ import StockControl from './StockControl';
 import GeneradorPedidos from './GeneradorPedidos';
 import ConfiguradorMapeo from './ConfiguradorMapeo';
 import EconomiaInsights from './EconomiaInsights';
+import CashFlow from './CashFlow';
 import { API_URL } from './api';
 
 function App() {
@@ -283,6 +285,14 @@ function App() {
             Economia
           </button>
           <button
+            className={`btn ${activeTab === 'cashflow' ? '' : 'inactive'}`}
+            style={{background: activeTab === 'cashflow' ? 'rgba(14, 165, 233, 0.2)' : 'transparent', color: activeTab === 'cashflow' ? '#7dd3fc' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'cashflow' ? '1px solid rgba(14, 165, 233, 0.4)' : '1px solid transparent'}}
+            onClick={() => handleTabChange('cashflow')}
+          >
+            <WalletCards size={18} />
+            CashFlow
+          </button>
+          <button
             className={`btn ${activeTab === 'auditoria' ? '' : 'inactive'}`}
             style={{background: activeTab === 'auditoria' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: activeTab === 'auditoria' ? '#60a5fa' : 'var(--text-muted)', justifyContent: 'flex-start', border: activeTab === 'auditoria' ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent'}}
             onClick={() => handleTabChange('auditoria')}
@@ -311,6 +321,7 @@ function App() {
 
       {activeTab === 'dashboard' && renderDashboard()}
       {activeTab === 'economia' && <EconomiaInsights />}
+      {activeTab === 'cashflow' && <CashFlow />}
       {activeTab === 'auditoria' && <StockControl />}
       {activeTab === 'pedidos' && <GeneradorPedidos />}
       {activeTab === 'config_ventas' && <ConfiguradorMapeo />}

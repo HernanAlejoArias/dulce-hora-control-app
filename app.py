@@ -12,6 +12,11 @@ from core.product_logic import (
     save_json
 )
 from core.execution_tracker import set_tracking_enabled
+from core.cashflow import (
+    append_cashflow_movement,
+    cashflow_file,
+    list_cashflow_movements,
+)
 from core.stock_workflow import (
     get_conteo_planilla,
     get_stock_workflow_status,
@@ -48,6 +53,31 @@ def healthcheck():
 @app.get("/api/health")
 def api_healthcheck():
     return healthcheck()
+
+@app.get("/api/cashflow")
+def cashflow_status():
+    try:
+        return list_cashflow_movements()
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.post("/api/cashflow/movimientos")
+def cashflow_add_movement(payload: Dict[str, Any]):
+    try:
+        return append_cashflow_movement(payload)
+    except (FileNotFoundError, ValueError, PermissionError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@app.get("/api/cashflow/archivo")
+def cashflow_download():
+    path = cashflow_file()
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No se encontro el archivo de cashflow.")
+    return FileResponse(
+        path,
+        filename=os.path.basename(path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 def _get_orden_planilla_stock() -> List[str]:
     """Devuelve el orden de codigos definido por la planilla de stock."""

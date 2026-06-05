@@ -12,6 +12,7 @@ Backend FastAPI for Dulce Hora stock, vencimientos, pedidos and daily batch proc
    - `Archivos/Desperdicio`
    - `Archivos/Stock`
    - `Archivos/Carga Inicial`
+   - `Archivos/DH - CashFlow.xlsx`
 
 ```powershell
 docker compose up -d --build dulce-hora-app
@@ -41,5 +42,6 @@ The tunnel points to `http://dulce-hora-app:8000`.
 - `DULCE_HORA_CORS_ORIGINS`: comma-separated CORS origins. Defaults to `*`.
 - `DULCE_HORA_STOCK_FILE`: optional override for the stock spreadsheet.
 - `DULCE_HORA_VENTAS_FILE`: optional override for the ventas spreadsheet.
+- `DULCE_HORA_CASHFLOW_FILE`: optional override for the cashflow spreadsheet.
 - `DULCE_HORA_PEDIDO_BASE_FILE`: optional override for the base pedido spreadsheet.
 - `DULCE_HORA_CARGA_INICIAL_DIR`: optional override for carga inicial spreadsheets.
