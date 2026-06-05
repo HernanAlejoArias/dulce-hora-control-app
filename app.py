@@ -12,6 +12,14 @@ from core.product_logic import (
     save_json
 )
 from core.execution_tracker import set_tracking_enabled
+from core.stock_workflow import (
+    get_conteo_planilla,
+    get_stock_workflow_status,
+    load_ubicaciones,
+    procesar_conteo_stock,
+    procesar_entradas,
+    procesar_ventas_desperdicio,
+)
 
 # Habilitar tracking en la API
 set_tracking_enabled(True)
@@ -164,7 +172,6 @@ def get_dashboard_data():
     """
     productos = load_json("productos.json")
     lotes = load_json("stock_lotes.json")
-    
     prod_dict = {p['codigo_producto']: p for p in productos}
     
     from datetime import datetime, timedelta
@@ -239,20 +246,43 @@ def update_mapeo_ventas(data: Dict[str, Any]):
 
 @app.post("/api/procesar_dia")
 def procesar_dia():
-    """Ejecuta el script de procesamiento diario de forma manual"""
-    import subprocess
-    script_path = os.path.join(os.path.dirname(__file__), "scripts", "procesar_diario.py")
+    """Compatibilidad: ejecuta entradas y ventas/desperdicio con flags anti-reproceso."""
     try:
-        subprocess.run(["python", script_path], check=True)
-        return {"status": "ok", "message": "Procesamiento batch ejecutado exitosamente."}
+        entradas = procesar_entradas()
+        salidas = procesar_ventas_desperdicio()
+        return {"status": "ok", "entradas": entradas, "ventas_desperdicio": salidas}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/stock_control/status")
+def stock_control_status():
+    return get_stock_workflow_status()
+
+@app.get("/api/stock_control/conteo")
+def stock_control_conteo():
+    return get_conteo_planilla()
+
+@app.post("/api/stock_control/procesar_conteo")
+def stock_control_procesar_conteo():
+    result = procesar_conteo_stock()
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+@app.post("/api/stock_control/procesar_entradas")
+def stock_control_procesar_entradas():
+    return procesar_entradas()
+
+@app.post("/api/stock_control/procesar_ventas_desperdicio")
+def stock_control_procesar_ventas_desperdicio():
+    return procesar_ventas_desperdicio()
 
 @app.get("/api/stock_comparativo")
 def get_stock_comparativo():
     """Devuelve el stock agrupado por producto para auditoría"""
     productos = load_json("productos.json")
     lotes = load_json("stock_lotes.json")
+    ubicaciones = load_ubicaciones()
     
     prod_dict = {p['codigo_producto']: p for p in productos}
     
@@ -272,6 +302,7 @@ def get_stock_comparativo():
                 "codigo": cod,
                 "descripcion": prod['descripcion'],
                 "categoria": prod['categoria'],
+                "ubicacion": ubicaciones.get(cod, {}).get("ubicacion", "Sin ubicacion"),
                 "stock_teorico": teorico
             })
             

@@ -31,8 +31,8 @@ class Lote(BaseModel):
     categoria: str
     fecha_ingreso: datetime
     fecha_vencimiento: Optional[datetime] = None
-    cantidad_inicial: int
-    cantidad_actual: int
+    cantidad_inicial: float
+    cantidad_actual: float
     estado: LoteEstado = "ACTIVO"
     origen: str
     archivo_origen: Optional[str] = None
@@ -54,7 +54,7 @@ class MovimientoStock(BaseModel):
     codigo_producto: str
     id_lote: Optional[str] = None
     tipo: MovimientoTipo
-    cantidad: int
+    cantidad: float
     observacion: Optional[str] = None
     archivo_origen: Optional[str] = None
     usuario_origen: Optional[str] = None

@@ -261,6 +261,21 @@ tr:hover {
   animation: pulseGlow 2s infinite;
 }
 
+.stock-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.stock-location-block {
+  margin-top: 1.25rem;
+}
+
+.stock-location-block h2 {
+  margin-bottom: 0.75rem;
+}
+
 @media (max-width: 900px) {
   .app-container {
     display: block;
@@ -386,6 +401,11 @@ tr:hover {
   td {
     padding: 0.75rem 0.85rem;
   }
+
+  .stock-actions .btn {
+    flex: 1 1 220px;
+    justify-content: center;
+  }
 }
 
 @media (max-width: 560px) {
@@ -417,5 +437,10 @@ tr:hover {
 
   .btn {
     min-height: 44px;
+  }
+
+  .stock-actions .btn {
+    width: 100%;
+    flex-basis: 100%;
   }
 }

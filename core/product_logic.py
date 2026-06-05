@@ -106,7 +106,7 @@ def _generar_id_movimiento() -> str:
     return f"MOV-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.urandom(2).hex().upper()}"
 
 @track_execution
-def descontar_stock_fefo(codigo_producto: str, cantidad: int, tipo: str, observacion: str = "") -> None:
+def descontar_stock_fefo(codigo_producto: str, cantidad: float, tipo: str, observacion: str = "", archivo_origen: str | None = None) -> None:
     """
     Descuenta stock usando FEFO (First Expired, First Out).
     Actualiza lotes y registra movimientos.
@@ -122,7 +122,7 @@ def descontar_stock_fefo(codigo_producto: str, cantidad: int, tipo: str, observa
     
     movimientos_raw = load_json("movimientos_stock.json")
     
-    cantidad_restante = cantidad
+    cantidad_restante = float(cantidad)
     
     for lote in lotes_activos:
         if cantidad_restante <= 0:
@@ -142,7 +142,8 @@ def descontar_stock_fefo(codigo_producto: str, cantidad: int, tipo: str, observa
             id_lote=lote.id_lote,
             tipo=tipo,
             cantidad=-descuento,
-            observacion=observacion
+            observacion=observacion,
+            archivo_origen=archivo_origen
         )
         movimientos_raw.append(mov_data.model_dump(mode='json'))
         
@@ -171,7 +172,7 @@ def ingresar_entrega(entrega_items: List[Dict[str, Any]], fecha_entrega: datetim
     
     for item in entrega_items:
         codigo = str(item.get("codigo", "")).strip()
-        cantidad = int(item.get("cantidad", 0))
+        cantidad = float(item.get("cantidad", 0))
         
         if not codigo or cantidad <= 0:
             continue
