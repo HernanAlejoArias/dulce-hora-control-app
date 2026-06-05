@@ -269,6 +269,13 @@ def stock_control_procesar_conteo():
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
 
+@app.post("/api/stock_control/restaurar_ultimo_stock")
+def stock_control_restaurar_ultimo_stock():
+    result = procesar_conteo_stock(forzar=True)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
 @app.post("/api/stock_control/procesar_entradas")
 def stock_control_procesar_entradas(payload: Dict[str, Any] | None = None):
     archivos = payload.get("archivos") if payload else None

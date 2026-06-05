@@ -277,14 +277,14 @@ def _unique_lote_id(lotes: List[Dict[str, Any]], base_id: str) -> str:
     return f"{base_id}-{suffix}"
 
 
-def procesar_conteo_stock() -> Dict[str, Any]:
+def procesar_conteo_stock(forzar: bool = False) -> Dict[str, Any]:
     conteo = load_latest_stock_count()
     if not conteo:
         return {"status": "error", "message": "No se encontro una fila de conteo en la planilla de stock."}
 
     state = load_process_state()
     fecha = conteo["fecha"]
-    if fecha in state["conteo_stock"]["processed_dates"]:
+    if not forzar and fecha in state["conteo_stock"]["processed_dates"]:
         return {"status": "skipped", "message": f"El conteo {fecha} ya fue procesado.", "fecha": fecha}
 
     productos = load_json("productos.json")
@@ -294,6 +294,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
     total_neg = 0.0
     total_conteos = 0
     archivo = conteo["archivo"]
+    accion = "Restauracion" if forzar else "Ajuste"
 
     for codigo, contado in conteo["valores"].items():
         actual = stock.get(codigo, 0.0)
@@ -303,7 +304,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
                 codigo,
                 abs(diff),
                 "AJUSTE_NEGATIVO",
-                f"Ajuste x Conteo {fecha}",
+                f"{accion} x Conteo {fecha}",
                 archivo_origen=archivo,
             )
             total_neg += abs(diff)
@@ -323,7 +324,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
             id_lote=None,
             tipo="CONTEO_STOCK",
             cantidad=contado,
-            observacion=f"Conteo fisico {fecha}",
+            observacion=f"{accion} fisico {fecha}",
             archivo_origen=archivo,
         )
         total_conteos += 1
@@ -349,7 +350,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
             "fecha_ingreso": fecha,
             "fecha_vencimiento": vencimiento,
             "estado": "ACTIVO",
-            "origen": f"Ajuste Positivo Conteo {fecha}",
+            "origen": f"{accion} Positivo Conteo {fecha}",
             "archivo_origen": archivo,
         }
         lotes.append(nuevo_lote)
@@ -359,7 +360,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
             id_lote=lote_id,
             tipo="AJUSTE_POSITIVO",
             cantidad=diff,
-            observacion=f"Ajuste Conteo {fecha}",
+            observacion=f"{accion} Conteo {fecha}",
             archivo_origen=archivo,
         )
         total_pos += diff
@@ -373,6 +374,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
         "ajustes_positivos": _format_qty(total_pos),
         "ajustes_negativos": _format_qty(total_neg),
         "conteos": total_conteos,
+        "forzado": forzar,
     }
     state["conteo_stock"]["last_processed_date"] = fecha
     save_process_state(state)
@@ -383,6 +385,7 @@ def procesar_conteo_stock() -> Dict[str, Any]:
         "conteos": total_conteos,
         "ajustes_positivos": _format_qty(total_pos),
         "ajustes_negativos": _format_qty(total_neg),
+        "forzado": forzar,
     }
 
 

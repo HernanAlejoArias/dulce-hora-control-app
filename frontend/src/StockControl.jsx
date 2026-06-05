@@ -247,18 +247,30 @@ export default function StockControl() {
                   </p>
                 )}
               </div>
-              <button
-                className="btn"
-                onClick={() => runAction('conteo', '/stock_control/procesar_conteo', data => (
-                  data.status === 'skipped'
-                    ? data.message
-                    : `Conteo aplicado. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
-                ))}
-                disabled={!!processing || conteo.conteo.procesado}
-              >
-                <RefreshCw size={18} className={processing === 'conteo' ? 'spin' : ''} />
-                Aplicar Conteo
-              </button>
+              <div className="stock-actions">
+                <button
+                  className="btn"
+                  onClick={() => runAction('conteo', '/stock_control/procesar_conteo', data => (
+                    data.status === 'skipped'
+                      ? data.message
+                      : `Conteo aplicado. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
+                  ))}
+                  disabled={!!processing || conteo.conteo.procesado}
+                >
+                  <RefreshCw size={18} className={processing === 'conteo' ? 'spin' : ''} />
+                  Aplicar Conteo
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => runAction('restaurar', '/stock_control/restaurar_ultimo_stock', data => (
+                    `Stock restaurado desde el ultimo conteo. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
+                  ))}
+                  disabled={!!processing}
+                >
+                  <PackageCheck size={18} className={processing === 'restaurar' ? 'spin' : ''} />
+                  Restaurar Ultimo Stock
+                </button>
+              </div>
             </div>
           </div>
 
