@@ -308,6 +308,36 @@ tr:hover {
   color: var(--text-muted);
 }
 
+.count-date-field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.count-date-field input,
+.count-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: white;
+  font: inherit;
+}
+
+.count-date-field input {
+  width: 130px;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+}
+
+.count-input {
+  width: 92px;
+  min-height: 40px;
+  padding: 0.45rem 0.6rem;
+  text-align: right;
+}
+
 @media (max-width: 900px) {
   .app-container {
     display: block;

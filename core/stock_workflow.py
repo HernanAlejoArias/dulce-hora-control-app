@@ -4,6 +4,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from .product_config import MovimientoStock
 from .product_logic import (
@@ -133,6 +134,16 @@ def _format_qty(value: float) -> float | int:
     return int(rounded) if rounded.is_integer() else rounded
 
 
+def _parse_count_date(value: str | None) -> datetime:
+    raw = str(value or "").strip()
+    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            pass
+    raise ValueError("La fecha del conteo debe tener formato aaaammdd.")
+
+
 def _stock_actual() -> Dict[str, float]:
     lotes = load_json("stock_lotes.json")
     stock: Dict[str, float] = {}
@@ -203,6 +214,63 @@ def load_latest_stock_count() -> Dict[str, Any] | None:
         "valores": valores,
         "orden": orden,
         "es_futura": fecha.date() > date.today(),
+    }
+
+
+def guardar_conteo_stock(fecha: str, valores: Dict[str, Any]) -> Dict[str, Any]:
+    path = _stock_file()
+    if not os.path.exists(path):
+        return {"status": "error", "message": "No se encontro la planilla de stock."}
+
+    fecha_dt = _parse_count_date(fecha)
+    wb = load_workbook(path)
+    ws = wb.active
+    codigo_col: Dict[str, int] = {}
+    for col_idx in range(2, ws.max_column + 1):
+        codigo = str(ws.cell(row=1, column=col_idx).value or "").strip()
+        if codigo.isdigit():
+            codigo_col[codigo] = col_idx
+
+    target_row = None
+    first_empty_row = None
+    for row_idx in range(3, ws.max_row + 1):
+        cell = ws.cell(row=row_idx, column=1)
+        if cell.value is None and first_empty_row is None:
+            first_empty_row = row_idx
+            continue
+        parsed = pd.to_datetime(cell.value, errors="coerce")
+        if pd.notna(parsed) and parsed.to_pydatetime().date() == fecha_dt.date():
+            target_row = row_idx
+            break
+
+    if target_row is None:
+        target_row = first_empty_row or (ws.max_row + 1)
+
+    date_cell = ws.cell(row=target_row, column=1)
+    date_cell.value = fecha_dt
+    date_cell.number_format = "yyyymmdd"
+
+    guardados = 0
+    omitidos = []
+    for codigo, value in valores.items():
+        codigo_str = str(codigo).strip()
+        col_idx = codigo_col.get(codigo_str)
+        if not col_idx:
+            omitidos.append(codigo_str)
+            continue
+        cantidad = _safe_float(value)
+        ws.cell(row=target_row, column=col_idx).value = cantidad
+        guardados += 1
+
+    wb.save(path)
+    return {
+        "status": "ok",
+        "fecha": fecha_dt.strftime("%Y-%m-%d"),
+        "fecha_formato": fecha_dt.strftime("%Y%m%d"),
+        "archivo": os.path.basename(path),
+        "fila": target_row,
+        "guardados": guardados,
+        "omitidos": omitidos,
     }
 
 

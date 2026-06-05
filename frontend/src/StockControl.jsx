@@ -13,6 +13,14 @@ const formatDate = (value) => {
   return String(value).replaceAll('-', '');
 };
 
+const todayCompact = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+};
+
 export default function StockControl() {
   const [stock, setStock] = useState([]);
   const [status, setStatus] = useState(null);
@@ -22,6 +30,8 @@ export default function StockControl() {
   const [processing, setProcessing] = useState('');
   const [message, setMessage] = useState('');
   const [selectedDeliveries, setSelectedDeliveries] = useState([]);
+  const [countDate, setCountDate] = useState(todayCompact());
+  const [countValues, setCountValues] = useState({});
 
   useEffect(() => {
     refreshAll();
@@ -49,11 +59,15 @@ export default function StockControl() {
 
   const loadConteo = async () => {
     setActiveView('conteo');
-    if (conteo) return;
+    if (conteo) {
+      if (!Object.keys(countValues).length) seedCountValues(conteo);
+      return;
+    }
     setLoading(true);
     try {
       const res = await axios.get(`${API_URL}/stock_control/conteo`);
       setConteo(res.data);
+      seedCountValues(res.data);
     } catch (err) {
       console.error(err);
       setMessage('Error leyendo la planilla de conteo.');
@@ -69,9 +83,10 @@ export default function StockControl() {
       setMessage(successText(res.data));
       setConteo(null);
       await refreshAll();
-      if (key === 'conteo') {
+      if (key === 'conteo' || key === 'guardar_conteo' || key === 'restaurar') {
         const conteoRes = await axios.get(`${API_URL}/stock_control/conteo`);
         setConteo(conteoRes.data);
+        seedCountValues(conteoRes.data);
         setActiveView('conteo');
       }
     } catch (err) {
@@ -101,6 +116,29 @@ export default function StockControl() {
         ? prev.filter(item => item !== archivo)
         : [...prev, archivo]
     ));
+  };
+
+  const seedCountValues = (conteoData) => {
+    const next = {};
+    conteoData.grupos?.forEach(group => {
+      group.productos.forEach(item => {
+        next[item.codigo] = item.stock_planilla ?? item.stock_actual ?? 0;
+      });
+    });
+    setCountValues(next);
+  };
+
+  const handleCountValue = (codigo, value) => {
+    setCountValues(prev => ({ ...prev, [codigo]: value }));
+  };
+
+  const saveCountToExcel = () => {
+    runAction(
+      'guardar_conteo',
+      '/stock_control/guardar_conteo',
+      data => `Conteo guardado en Excel (${data.fecha_formato}). Productos guardados: ${data.guardados}.`,
+      { fecha: countDate, valores: countValues }
+    );
   };
 
   if (loading && !status) return <div className="main-content">Cargando Control Stock...</div>;
@@ -248,6 +286,24 @@ export default function StockControl() {
                 )}
               </div>
               <div className="stock-actions">
+                <label className="count-date-field">
+                  <span>Fecha conteo</span>
+                  <input
+                    type="text"
+                    value={countDate}
+                    onChange={e => setCountDate(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                    inputMode="numeric"
+                    maxLength={8}
+                  />
+                </label>
+                <button
+                  className="btn"
+                  onClick={saveCountToExcel}
+                  disabled={!!processing || countDate.length !== 8}
+                >
+                  <PackageCheck size={18} className={processing === 'guardar_conteo' ? 'spin' : ''} />
+                  Guardar Conteo en Excel
+                </button>
                 <button
                   className="btn"
                   onClick={() => runAction('conteo', '/stock_control/procesar_conteo', data => (
@@ -284,7 +340,7 @@ export default function StockControl() {
                       <th>Codigo</th>
                       <th>Producto</th>
                       <th>Actual App</th>
-                      <th>Conteo Planilla</th>
+                      <th>Conteo</th>
                       <th>Diferencia</th>
                     </tr>
                   </thead>
@@ -294,10 +350,19 @@ export default function StockControl() {
                         <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{item.codigo}</td>
                         <td style={{ fontWeight: 500 }}>{item.descripcion}</td>
                         <td>{qty(item.stock_actual)}</td>
-                        <td>{qty(item.stock_planilla)}</td>
                         <td>
-                          <span className={`badge ${Number(item.diferencia || 0) === 0 ? 'safe' : Number(item.diferencia || 0) > 0 ? 'warning-med' : 'danger'}`}>
-                            {Number(item.diferencia || 0) > 0 ? '+' : ''}{qty(item.diferencia)}
+                          <input
+                            className="count-input"
+                            type="number"
+                            value={countValues[item.codigo] ?? ''}
+                            onChange={e => handleCountValue(item.codigo, e.target.value)}
+                            step="0.001"
+                            inputMode="decimal"
+                          />
+                        </td>
+                        <td>
+                          <span className={`badge ${Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) === 0 ? 'safe' : Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) > 0 ? 'warning-med' : 'danger'}`}>
+                            {Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) > 0 ? '+' : ''}{qty(Number(countValues[item.codigo] || 0) - Number(item.stock_actual || 0))}
                           </span>
                         </td>
                       </tr>

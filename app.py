@@ -15,6 +15,7 @@ from core.execution_tracker import set_tracking_enabled
 from core.stock_workflow import (
     get_conteo_planilla,
     get_stock_workflow_status,
+    guardar_conteo_stock,
     load_ubicaciones,
     procesar_conteo_stock,
     procesar_entradas,
@@ -261,6 +262,13 @@ def stock_control_status():
 @app.get("/api/stock_control/conteo")
 def stock_control_conteo():
     return get_conteo_planilla()
+
+@app.post("/api/stock_control/guardar_conteo")
+def stock_control_guardar_conteo(payload: Dict[str, Any]):
+    result = guardar_conteo_stock(payload.get("fecha"), payload.get("valores", {}))
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
 
 @app.post("/api/stock_control/procesar_conteo")
 def stock_control_procesar_conteo():
