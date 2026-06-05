@@ -20,6 +20,10 @@ DELIVERY_FILENAME_RE = re.compile(
     r"^Planilla de pedido Banfield\s*-\s*(\d{1,2})_(\d{1,2})_(\d{4})(?:\.[^.]+)?$",
     re.IGNORECASE,
 )
+SALES_FILENAME_RE = re.compile(
+    r"^Estadisticas de Banfield\s*-\s*(\d{4}-\d{2}-\d{2})(?:\.[^.]+)?$",
+    re.IGNORECASE,
+)
 
 
 def _archivos_dir() -> str:
@@ -44,10 +48,27 @@ def _ubicacion_file() -> str:
 
 
 def _ventas_file() -> str:
-    return os.environ.get(
-        "DULCE_HORA_VENTAS_FILE",
-        os.path.join(_archivos_dir(), "Ventas", "Estadisticas de Banfield - 2026-06-01.xlsx"),
-    )
+    override = os.environ.get("DULCE_HORA_VENTAS_FILE")
+    if override:
+        return override
+
+    ventas_dir = os.path.join(_archivos_dir(), "Ventas")
+    fallback = os.path.join(ventas_dir, "Estadisticas de Banfield - 2026-06-01.xlsx")
+    if not os.path.isdir(ventas_dir):
+        return fallback
+
+    candidates = []
+    for name in os.listdir(ventas_dir):
+        if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
+            continue
+        match = SALES_FILENAME_RE.match(name)
+        if match:
+            candidates.append((match.group(1), name))
+    if not candidates:
+        return fallback
+
+    _, latest_name = sorted(candidates)[-1]
+    return os.path.join(ventas_dir, latest_name)
 
 
 def _empty_state() -> Dict[str, Any]:
@@ -780,16 +801,26 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
     state = load_process_state()
     ventas_processed = state["ventas"]["processed_dates"]
     waste_processed = state["desperdicio"]["processed_files"]
+    cutoff = _stock_cutoff_date(state)
     ventas_ok = []
     ventas_omitidas = []
+    ventas_bloqueadas = []
     desperdicio_ok = []
     desperdicio_omitido = []
+    desperdicio_bloqueado = []
     ventas_archivo = os.path.basename(_ventas_file())
 
     for row in _sales_rows():
         fecha = row["fecha"]
         if fecha in ventas_processed:
             ventas_omitidas.append(fecha)
+            continue
+        if cutoff and fecha < cutoff:
+            ventas_bloqueadas.append({
+                "fecha": fecha,
+                "fecha_corte_stock": cutoff,
+                "motivo": "La venta es anterior al ultimo conteo de stock.",
+            })
             continue
         total = 0.0
         for item in row["items"]:
@@ -817,6 +848,15 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
             continue
         total = 0.0
         fecha = info["fecha"]
+        fecha_key = _normalize_date_key(fecha)
+        if cutoff and fecha_key and fecha_key < cutoff:
+            desperdicio_bloqueado.append({
+                "archivo": archivo,
+                "fecha": fecha,
+                "fecha_corte_stock": cutoff,
+                "motivo": "El desperdicio es anterior al ultimo conteo de stock.",
+            })
+            continue
         for item in info["items"]:
             descontar_stock_fefo(
                 item["codigo"],
@@ -840,8 +880,10 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
         "status": "ok",
         "ventas_procesadas": ventas_ok,
         "ventas_omitidas": ventas_omitidas,
+        "ventas_bloqueadas": ventas_bloqueadas,
         "desperdicio_procesado": desperdicio_ok,
         "desperdicio_omitido": desperdicio_omitido,
+        "desperdicio_bloqueado": desperdicio_bloqueado,
     }
 
 
@@ -856,6 +898,28 @@ def get_stock_workflow_status() -> Dict[str, Any]:
     waste_processed = state["desperdicio"]["processed_files"]
     entradas_pendientes = [d for d in deliveries if not d["procesado"] and not d.get("bloqueado_por_conteo")]
     entradas_bloqueadas = [d for d in deliveries if d.get("bloqueado_por_conteo")]
+    cutoff = _stock_cutoff_date(state)
+    ventas_pendientes = [
+        r for r in sales_rows
+        if r["fecha"] not in ventas_processed and not (cutoff and r["fecha"] < cutoff)
+    ]
+    ventas_bloqueadas = [
+        r | {"fecha_corte_stock": cutoff}
+        for r in sales_rows
+        if r["fecha"] not in ventas_processed and cutoff and r["fecha"] < cutoff
+    ]
+    desperdicio_pendiente = [
+        w for w in waste_files
+        if w["archivo"] not in waste_processed
+        and not (cutoff and (_normalize_date_key(w["fecha"]) or "") < cutoff)
+    ]
+    desperdicio_bloqueado = [
+        w | {"fecha_corte_stock": cutoff}
+        for w in waste_files
+        if w["archivo"] not in waste_processed
+        and cutoff
+        and (_normalize_date_key(w["fecha"]) or "") < cutoff
+    ]
     return {
         "stock_actual": {
             "productos_con_stock": sum(1 for qty in stock.values() if qty > 0),
@@ -870,9 +934,11 @@ def get_stock_workflow_status() -> Dict[str, Any]:
             "fecha_corte_stock": _stock_cutoff_date(state),
         },
         "ventas_desperdicio": {
-            "ventas_pendientes": [r for r in sales_rows if r["fecha"] not in ventas_processed],
+            "ventas_pendientes": ventas_pendientes,
+            "ventas_bloqueadas": ventas_bloqueadas,
             "ventas_procesadas": sorted(ventas_processed.keys()),
-            "desperdicio_pendiente": [w for w in waste_files if w["archivo"] not in waste_processed],
+            "desperdicio_pendiente": desperdicio_pendiente,
+            "desperdicio_bloqueado": desperdicio_bloqueado,
             "desperdicio_procesado": sorted(waste_processed.keys()),
             "ultima_venta_procesada": state["ventas"]["last_processed_date"],
             "ultimo_desperdicio_procesado": state["desperdicio"]["last_processed_date"],
