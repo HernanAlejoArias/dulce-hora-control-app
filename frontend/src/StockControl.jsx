@@ -75,6 +75,18 @@ export default function StockControl() {
     setLoading(false);
   };
 
+  const showActual = () => {
+    setActiveView('actual');
+  };
+
+  const showEntradas = () => {
+    setActiveView('entradas');
+  };
+
+  const showSalidas = () => {
+    setActiveView('salidas');
+  };
+
   const runAction = async (key, url, successText, payload = undefined) => {
     setProcessing(key);
     setMessage('');
@@ -184,37 +196,116 @@ export default function StockControl() {
 
       <div className="glass-card" style={{ marginBottom: '1rem' }}>
         <div className="stock-actions">
+          <button className="btn" onClick={showActual} disabled={loading}>
+            <PackageCheck size={18} />
+            Stock Actual
+          </button>
           <button className="btn" onClick={loadConteo} disabled={loading}>
             <ClipboardList size={18} />
             Contar Stock
           </button>
           <button
             className="btn"
-            onClick={() => runAction('entradas', '/stock_control/procesar_entradas', data => {
-              const count = data.procesados?.length || 0;
-              return count ? `Entradas procesadas: ${count}.` : 'No se proceso ninguna entrada.';
-            }, { archivos: selectedDeliveries })}
-            disabled={!!processing || selectedDeliveries.length === 0}
+            onClick={showEntradas}
+            disabled={!!processing}
           >
-            <PackageCheck size={18} className={processing === 'entradas' ? 'spin' : ''} />
-            Procesar Entrada
+            <PackageCheck size={18} />
+            Entradas
           </button>
           <button
             className="btn"
-            onClick={() => runAction('salidas', '/stock_control/procesar_ventas_desperdicio', data => {
-              const ventas = data.ventas_procesadas?.length || 0;
-              const desperdicio = data.desperdicio_procesado?.length || 0;
-              return ventas || desperdicio
-                ? `Procesadas ventas: ${ventas}; desperdicio: ${desperdicio}.`
-                : 'No habia ventas ni desperdicios nuevos para procesar.';
-            })}
+            onClick={showSalidas}
             disabled={!!processing}
           >
-            <Trash2 size={18} className={processing === 'salidas' ? 'spin' : ''} />
-            Procesar Desperdicio y Ventas
+            <Trash2 size={18} />
+            Ventas y Desperdicio
           </button>
         </div>
       </div>
+
+      {activeView === 'entradas' && (
+        <div className="glass-card" style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: pendingDeliveries.length ? '1rem' : 0 }}>
+            <div>
+              <h2 style={{ marginBottom: '0.35rem' }}>Entradas</h2>
+              <p style={{ color: 'var(--text-muted)' }}>
+                Selecciona que pedidos queres usar. Fecha de corte stock: {formatDate(status?.entradas?.fecha_corte_stock)}
+              </p>
+            </div>
+            <div className="stock-actions">
+              {pendingDeliveries.length > 0 && (
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    const allSelected = pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo));
+                    setSelectedDeliveries(allSelected ? [] : pendingDeliveries.map(item => item.archivo));
+                  }}
+                >
+                  {pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo)) ? 'Limpiar seleccion' : 'Seleccionar todos'}
+                </button>
+              )}
+              <button
+                className="btn"
+                onClick={() => runAction('entradas', '/stock_control/procesar_entradas', data => {
+                  const count = data.procesados?.length || 0;
+                  return count ? `Entradas procesadas: ${count}.` : 'No se proceso ninguna entrada.';
+                }, { archivos: selectedDeliveries })}
+                disabled={!!processing || selectedDeliveries.length === 0}
+              >
+                <PackageCheck size={18} className={processing === 'entradas' ? 'spin' : ''} />
+                Procesar Entrada
+              </button>
+            </div>
+          </div>
+          {pendingDeliveries.length === 0 ? (
+            <p style={{ color: 'var(--text-muted)' }}>No hay pedidos nuevos disponibles para procesar.</p>
+          ) : (
+            <div className="delivery-list">
+              {pendingDeliveries.map(item => (
+                <label className="delivery-option" key={item.archivo}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDeliverySet.has(item.archivo)}
+                    onChange={() => toggleDelivery(item.archivo)}
+                  />
+                  <span>
+                    <strong>{item.archivo}</strong>
+                    <small>{formatDate(item.fecha)} | {item.items?.length || 0} productos</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeView === 'salidas' && (
+        <div className="glass-card" style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <h2 style={{ marginBottom: '0.35rem' }}>Ventas y Desperdicio</h2>
+              <p style={{ color: 'var(--text-muted)' }}>
+                Procesa las ventas y los desperdicios nuevos que todavia no fueron aplicados.
+              </p>
+            </div>
+            <button
+              className="btn"
+              onClick={() => runAction('salidas', '/stock_control/procesar_ventas_desperdicio', data => {
+                const ventas = data.ventas_procesadas?.length || 0;
+                const desperdicio = data.desperdicio_procesado?.length || 0;
+                return ventas || desperdicio
+                  ? `Procesadas ventas: ${ventas}; desperdicio: ${desperdicio}.`
+                  : 'No habia ventas ni desperdicios nuevos para procesar.';
+              })}
+              disabled={!!processing}
+            >
+              <Trash2 size={18} className={processing === 'salidas' ? 'spin' : ''} />
+              Procesar Ventas y Desperdicio
+            </button>
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className="glass-card" style={{ marginBottom: '1rem', color: message.includes('Error') || message.includes('No se pudo') ? '#fca5a5' : '#86efac' }}>
@@ -222,48 +313,6 @@ export default function StockControl() {
           <span style={{ marginLeft: '0.5rem' }}>{message}</span>
         </div>
       )}
-
-      <div className="glass-card" style={{ marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: pendingDeliveries.length ? '1rem' : 0 }}>
-          <div>
-            <h2 style={{ marginBottom: '0.35rem' }}>Pedidos disponibles</h2>
-            <p style={{ color: 'var(--text-muted)' }}>
-              Selecciona que entradas queres usar. Fecha de corte stock: {formatDate(status?.entradas?.fecha_corte_stock)}
-            </p>
-          </div>
-          {pendingDeliveries.length > 0 && (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                const allSelected = pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo));
-                setSelectedDeliveries(allSelected ? [] : pendingDeliveries.map(item => item.archivo));
-              }}
-            >
-              {pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo)) ? 'Limpiar seleccion' : 'Seleccionar todos'}
-            </button>
-          )}
-        </div>
-        {pendingDeliveries.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)' }}>No hay pedidos nuevos disponibles para procesar.</p>
-        ) : (
-          <div className="delivery-list">
-            {pendingDeliveries.map(item => (
-              <label className="delivery-option" key={item.archivo}>
-                <input
-                  type="checkbox"
-                  checked={selectedDeliverySet.has(item.archivo)}
-                  onChange={() => toggleDelivery(item.archivo)}
-                />
-                <span>
-                  <strong>{item.archivo}</strong>
-                  <small>{formatDate(item.fecha)} | {item.items?.length || 0} productos</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-      </div>
 
       {activeView === 'conteo' && conteo ? (
         <>
@@ -281,7 +330,7 @@ export default function StockControl() {
                 )}
                 {conteo.conteo.procesado && (
                   <p style={{ color: '#86efac', marginTop: '0.5rem' }}>
-                    Este conteo ya fue procesado. El flag evita reprocesarlo.
+                    Este conteo ya fue aplicado. Para volver el stock al Excel, usa Restaurar Ultimo Stock.
                   </p>
                 )}
               </div>
@@ -373,7 +422,7 @@ export default function StockControl() {
             </div>
           ))}
         </>
-      ) : (
+      ) : activeView === 'actual' ? (
         <>
           <h2>Stock Actual</h2>
           {stockPorUbicacion.map(([ubicacion, items]) => (
@@ -404,7 +453,7 @@ export default function StockControl() {
             </div>
           ))}
         </>
-      )}
+      ) : null}
     </div>
   );
 }
