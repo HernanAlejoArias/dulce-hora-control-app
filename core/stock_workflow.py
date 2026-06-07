@@ -339,9 +339,14 @@ def load_ubicaciones() -> Dict[str, Dict[str, str]]:
 
 
 def load_latest_stock_count() -> Dict[str, Any] | None:
+    counts = list_stock_counts()
+    return counts[-1] if counts else None
+
+
+def list_stock_counts() -> List[Dict[str, Any]]:
     path = _stock_file()
     if not os.path.exists(path):
-        return None
+        return []
 
     df = pd.read_excel(path, header=0)
     fechas: List[tuple[int, datetime]] = []
@@ -351,32 +356,44 @@ def load_latest_stock_count() -> Dict[str, Any] | None:
             fechas.append((idx, parsed.to_pydatetime()))
 
     if not fechas:
+        return []
+
+    counts = []
+    for row_idx, fecha in sorted(fechas, key=lambda item: item[1]):
+        row = df.iloc[row_idx]
+        valores: Dict[str, float] = {}
+        orden: List[str] = []
+        for col in df.columns[1:]:
+            codigo = str(col).strip()
+            if not codigo.isdigit():
+                continue
+            cantidad = _safe_float(row[col])
+            if cantidad is None:
+                continue
+            valores[codigo] = cantidad
+            orden.append(codigo)
+
+        counts.append({
+            "fecha": fecha.strftime("%Y-%m-%d"),
+            "archivo": os.path.basename(path),
+            "path": path,
+            "fila": int(row_idx) + 2,
+            "valores": valores,
+            "orden": orden,
+            "es_futura": fecha.date() > date.today(),
+        })
+
+    return counts
+
+
+def _stock_count_by_date(fecha: str | None = None) -> Dict[str, Any] | None:
+    counts = list_stock_counts()
+    if not counts:
         return None
-
-    fechas.sort(key=lambda item: item[1], reverse=True)
-    row_idx, fecha = fechas[0]
-    row = df.iloc[row_idx]
-    valores: Dict[str, float] = {}
-    orden: List[str] = []
-    for col in df.columns[1:]:
-        codigo = str(col).strip()
-        if not codigo.isdigit():
-            continue
-        cantidad = _safe_float(row[col])
-        if cantidad is None:
-            continue
-        valores[codigo] = cantidad
-        orden.append(codigo)
-
-    fecha_str = fecha.strftime("%Y-%m-%d")
-    return {
-        "fecha": fecha_str,
-        "archivo": os.path.basename(path),
-        "path": path,
-        "valores": valores,
-        "orden": orden,
-        "es_futura": fecha.date() > date.today(),
-    }
+    if not fecha:
+        return counts[-1]
+    fecha_key = _normalize_date_key(fecha)
+    return next((count for count in counts if count["fecha"] == fecha_key), None)
 
 
 def guardar_conteo_stock(fecha: str, valores: Dict[str, Any]) -> Dict[str, Any]:
@@ -507,8 +524,8 @@ def _unique_lote_id(lotes: List[Dict[str, Any]], base_id: str) -> str:
     return f"{base_id}-{suffix}"
 
 
-def procesar_conteo_stock(forzar: bool = False) -> Dict[str, Any]:
-    conteo = load_latest_stock_count()
+def procesar_conteo_stock(forzar: bool = False, fecha: str | None = None) -> Dict[str, Any]:
+    conteo = _stock_count_by_date(fecha)
     if not conteo:
         return {"status": "error", "message": "No se encontro una fila de conteo en la planilla de stock."}
 
@@ -680,21 +697,31 @@ def list_delivery_files() -> List[Dict[str, Any]]:
     return files
 
 
-def procesar_entradas(archivos_seleccionados: List[str] | None = None) -> Dict[str, Any]:
+def procesar_entradas(
+    archivos_seleccionados: List[str] | None = None,
+    fecha_desde: str | None = None,
+    fecha_hasta: str | None = None,
+) -> Dict[str, Any]:
     state = load_process_state()
     processed = state["entradas"]["processed_files"]
     seleccion = set(archivos_seleccionados) if archivos_seleccionados is not None else None
+    desde = _normalize_date_key(fecha_desde)
+    hasta = _normalize_date_key(fecha_hasta)
     procesados = []
     omitidos = []
     bloqueados = []
     for info in list_delivery_files():
         archivo = info["archivo"]
+        if desde and info["fecha"] < desde:
+            continue
+        if hasta and info["fecha"] >= hasta:
+            continue
         if seleccion is not None and archivo not in seleccion:
             continue
         if archivo in processed:
             omitidos.append(archivo)
             continue
-        if info.get("bloqueado_por_conteo"):
+        if not desde and info.get("bloqueado_por_conteo"):
             bloqueados.append({
                 "archivo": archivo,
                 "fecha": info["fecha"],
@@ -797,11 +824,16 @@ def _waste_files() -> List[Dict[str, Any]]:
     return files
 
 
-def procesar_ventas_desperdicio() -> Dict[str, Any]:
+def procesar_ventas_desperdicio(
+    fecha_desde: str | None = None,
+    fecha_hasta: str | None = None,
+) -> Dict[str, Any]:
     state = load_process_state()
     ventas_processed = state["ventas"]["processed_dates"]
     waste_processed = state["desperdicio"]["processed_files"]
     cutoff = _stock_cutoff_date(state)
+    desde = _normalize_date_key(fecha_desde)
+    hasta = _normalize_date_key(fecha_hasta)
     ventas_ok = []
     ventas_omitidas = []
     ventas_bloqueadas = []
@@ -812,10 +844,14 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
 
     for row in _sales_rows():
         fecha = row["fecha"]
+        if desde and fecha < desde:
+            continue
+        if hasta and fecha >= hasta:
+            continue
         if fecha in ventas_processed:
             ventas_omitidas.append(fecha)
             continue
-        if cutoff and fecha < cutoff:
+        if not desde and cutoff and fecha < cutoff:
             ventas_bloqueadas.append({
                 "fecha": fecha,
                 "fecha_corte_stock": cutoff,
@@ -849,7 +885,11 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
         total = 0.0
         fecha = info["fecha"]
         fecha_key = _normalize_date_key(fecha)
-        if cutoff and fecha_key and fecha_key < cutoff:
+        if desde and fecha_key and fecha_key < desde:
+            continue
+        if hasta and fecha_key and fecha_key >= hasta:
+            continue
+        if not desde and cutoff and fecha_key and fecha_key < cutoff:
             desperdicio_bloqueado.append({
                 "archivo": archivo,
                 "fecha": fecha,
@@ -884,6 +924,190 @@ def procesar_ventas_desperdicio() -> Dict[str, Any]:
         "desperdicio_procesado": desperdicio_ok,
         "desperdicio_omitido": desperdicio_omitido,
         "desperdicio_bloqueado": desperdicio_bloqueado,
+    }
+
+
+def _event_summary(kind: str, fecha: str, title: str, items: List[Dict[str, Any]], processed: bool, extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    total = sum(float(item.get("cantidad") or 0) for item in items)
+    return {
+        "tipo": kind,
+        "fecha": fecha,
+        "titulo": title,
+        "items": len(items),
+        "cantidad_total": _format_qty(total),
+        "procesado": processed,
+        **(extra or {}),
+    }
+
+
+def _cycle_bounds(fecha_conteo: str | None) -> tuple[str | None, str | None]:
+    counts = list_stock_counts()
+    if not counts:
+        return None, None
+    selected = _normalize_date_key(fecha_conteo) or counts[-1]["fecha"]
+    dates = [count["fecha"] for count in counts]
+    if selected not in dates:
+        return None, None
+    index = dates.index(selected)
+    next_date = dates[index + 1] if index + 1 < len(dates) else None
+    return selected, next_date
+
+
+def _count_index(fecha_conteo: str | None) -> int | None:
+    counts = list_stock_counts()
+    if not counts:
+        return None
+    selected = _normalize_date_key(fecha_conteo) or counts[-1]["fecha"]
+    for index, count in enumerate(counts):
+        if count["fecha"] == selected:
+            return index
+    return None
+
+
+def build_stock_timeline(fecha_conteo: str | None = None) -> Dict[str, Any]:
+    state = load_process_state()
+    counts = list_stock_counts()
+    start_index = _count_index(fecha_conteo)
+    selected = counts[start_index]["fecha"] if start_index is not None else None
+    next_date = counts[start_index + 1]["fecha"] if start_index is not None and start_index + 1 < len(counts) else None
+    stock = _stock_actual()
+    conteo = _stock_count_by_date(selected)
+
+    count_options = []
+    for index, count in enumerate(counts):
+        count_options.append({
+            "fecha": count["fecha"],
+            "fecha_formato": count["fecha"].replace("-", ""),
+            "fila": count["fila"],
+            "productos": len(count["valores"]),
+            "procesado": count["fecha"] in state["conteo_stock"]["processed_dates"],
+            "proximo_conteo": counts[index + 1]["fecha"] if index + 1 < len(counts) else None,
+        })
+
+    events = []
+    deliveries = list_delivery_files()
+    sales_rows = _sales_rows()
+    waste_files = _waste_files()
+    ventas_processed = state["ventas"]["processed_dates"]
+    waste_processed = state["desperdicio"]["processed_files"]
+
+    if start_index is not None:
+        for index in range(start_index, len(counts)):
+            current = counts[index]
+            current_date = current["fecha"]
+            following_date = counts[index + 1]["fecha"] if index + 1 < len(counts) else None
+            events.append(_event_summary(
+                "conteo",
+                current_date,
+                f"Conteo de stock {current_date.replace('-', '')}",
+                [{"cantidad": value} for value in current["valores"].values()],
+                current_date in state["conteo_stock"]["processed_dates"],
+                {"fila": current["fila"], "orden": 0, "ciclo": current_date},
+            ))
+
+            for delivery in deliveries:
+                if delivery["fecha"] < current_date:
+                    continue
+                if following_date and delivery["fecha"] >= following_date:
+                    continue
+                if delivery["procesado"]:
+                    continue
+                events.append(_event_summary(
+                    "entrada",
+                    delivery["fecha"],
+                    delivery["archivo"],
+                    delivery["items"],
+                    False,
+                    {"archivo": delivery["archivo"], "orden": 1, "ciclo": current_date},
+                ))
+
+            for row in sales_rows:
+                if row["fecha"] < current_date:
+                    continue
+                if following_date and row["fecha"] >= following_date:
+                    continue
+                if row["fecha"] in ventas_processed:
+                    continue
+                events.append(_event_summary(
+                    "ventas",
+                    row["fecha"],
+                    f"Ventas {row['fecha'].replace('-', '')}",
+                    row["items"],
+                    False,
+                    {"orden": 2, "ciclo": current_date},
+                ))
+
+            for waste in waste_files:
+                fecha = _normalize_date_key(waste["fecha"])
+                if fecha and fecha < current_date:
+                    continue
+                if following_date and fecha and fecha >= following_date:
+                    continue
+                if waste["archivo"] in waste_processed:
+                    continue
+                events.append(_event_summary(
+                    "desperdicio",
+                    fecha or waste["fecha"],
+                    waste["archivo"],
+                    waste["items"],
+                    False,
+                    {"archivo": waste["archivo"], "orden": 2, "ciclo": current_date},
+                ))
+
+    chart = []
+    if conteo:
+        productos = load_json("productos.json")
+        prod_dict = {str(p.get("codigo_producto")): p for p in productos}
+        for codigo, real in conteo["valores"].items():
+            teorico = stock.get(codigo, 0.0)
+            diff = round(real - teorico, 3)
+            if abs(diff) < 0.001:
+                continue
+            chart.append({
+                "codigo": codigo,
+                "descripcion": prod_dict.get(codigo, {}).get("descripcion", codigo),
+                "real": _format_qty(real),
+                "teorico": _format_qty(teorico),
+                "diferencia": _format_qty(diff),
+            })
+        chart.sort(key=lambda item: abs(float(item["diferencia"])), reverse=True)
+
+    events.sort(key=lambda item: (item["fecha"], item["orden"], item["titulo"]))
+    return {
+        "conteos": count_options,
+        "fecha_conteo": selected,
+        "proximo_conteo": next_date,
+        "timeline": events,
+        "chart": chart[:20],
+    }
+
+
+def normalizar_stock(fecha_conteo: str | None = None) -> Dict[str, Any]:
+    counts = list_stock_counts()
+    start_index = _count_index(fecha_conteo)
+    selected = counts[start_index]["fecha"] if start_index is not None else None
+    if not selected:
+        return {"status": "error", "message": "Selecciona un conteo de stock valido."}
+
+    conteo_results = []
+    entrada_results = []
+    salida_results = []
+    for index in range(start_index, len(counts)):
+        current_date = counts[index]["fecha"]
+        next_date = counts[index + 1]["fecha"] if index + 1 < len(counts) else None
+        conteo_results.append(procesar_conteo_stock(forzar=True, fecha=current_date))
+        entrada_results.append(procesar_entradas(fecha_desde=current_date, fecha_hasta=next_date))
+        salida_results.append(procesar_ventas_desperdicio(fecha_desde=current_date, fecha_hasta=next_date))
+
+    timeline = build_stock_timeline(selected)
+    return {
+        "status": "ok",
+        "fecha_conteo": selected,
+        "proximo_conteo": counts[start_index + 1]["fecha"] if start_index + 1 < len(counts) else None,
+        "conteos": conteo_results,
+        "entradas": entrada_results,
+        "ventas_desperdicio": salida_results,
+        "timeline": timeline,
     }
 
 

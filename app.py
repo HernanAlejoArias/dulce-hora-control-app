@@ -18,10 +18,12 @@ from core.cashflow import (
     list_cashflow_movements,
 )
 from core.stock_workflow import (
+    build_stock_timeline,
     get_conteo_planilla,
     get_stock_workflow_status,
     guardar_conteo_stock,
     load_ubicaciones,
+    normalizar_stock,
     procesar_conteo_stock,
     procesar_entradas,
     procesar_ventas_desperdicio,
@@ -301,15 +303,26 @@ def stock_control_guardar_conteo(payload: Dict[str, Any]):
     return result
 
 @app.post("/api/stock_control/procesar_conteo")
-def stock_control_procesar_conteo():
-    result = procesar_conteo_stock()
+def stock_control_procesar_conteo(payload: Dict[str, Any] | None = None):
+    result = procesar_conteo_stock(fecha=payload.get("fecha") if payload else None)
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result
 
 @app.post("/api/stock_control/restaurar_ultimo_stock")
-def stock_control_restaurar_ultimo_stock():
-    result = procesar_conteo_stock(forzar=True)
+def stock_control_restaurar_ultimo_stock(payload: Dict[str, Any] | None = None):
+    result = procesar_conteo_stock(forzar=True, fecha=payload.get("fecha") if payload else None)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+@app.get("/api/stock_control/timeline")
+def stock_control_timeline(fecha: str | None = None):
+    return build_stock_timeline(fecha)
+
+@app.post("/api/stock_control/normalizar")
+def stock_control_normalizar(payload: Dict[str, Any] | None = None):
+    result = normalizar_stock(payload.get("fecha_conteo") if payload else None)
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result

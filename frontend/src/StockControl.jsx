@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { ClipboardList, PackageCheck, RefreshCw, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ClipboardList, PackageCheck, RefreshCw, Trash2, AlertTriangle, CheckCircle2, Route } from 'lucide-react';
 import { API_URL } from './api';
 
 const qty = (value) => {
@@ -29,9 +29,11 @@ export default function StockControl() {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState('');
   const [message, setMessage] = useState('');
-  const [selectedDeliveries, setSelectedDeliveries] = useState([]);
+  const [timeline, setTimeline] = useState(null);
+  const [selectedCountDate, setSelectedCountDate] = useState('');
   const [countDate, setCountDate] = useState(todayCompact());
   const [countValues, setCountValues] = useState({});
+  const [countGroupIndex, setCountGroupIndex] = useState(0);
 
   useEffect(() => {
     refreshAll();
@@ -46,10 +48,6 @@ export default function StockControl() {
       ]);
       setStock(stockRes.data);
       setStatus(statusRes.data);
-      setSelectedDeliveries(prev => {
-        const available = statusRes.data.entradas?.pendientes?.map(item => item.archivo) || [];
-        return prev.filter(file => available.includes(file));
-      });
     } catch (err) {
       console.error(err);
       setMessage('Error cargando Control Stock.');
@@ -61,12 +59,14 @@ export default function StockControl() {
     setActiveView('conteo');
     if (conteo) {
       if (!Object.keys(countValues).length) seedCountValues(conteo);
+      if (countGroupIndex >= (conteo.grupos?.length || 0)) setCountGroupIndex(0);
       return;
     }
     setLoading(true);
     try {
       const res = await axios.get(`${API_URL}/stock_control/conteo`);
       setConteo(res.data);
+      if (res.data.conteo?.fecha) setCountDate(formatDate(res.data.conteo.fecha));
       seedCountValues(res.data);
     } catch (err) {
       console.error(err);
@@ -79,12 +79,22 @@ export default function StockControl() {
     setActiveView('actual');
   };
 
-  const showEntradas = () => {
-    setActiveView('entradas');
+  const loadTimeline = async (fecha = selectedCountDate) => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_URL}/stock_control/timeline`, { params: fecha ? { fecha } : {} });
+      setTimeline(res.data);
+      setSelectedCountDate(res.data.fecha_conteo || '');
+      setActiveView('normalizar');
+    } catch (err) {
+      console.error(err);
+      setMessage('Error armando timeline de stock.');
+    }
+    setLoading(false);
   };
 
-  const showSalidas = () => {
-    setActiveView('salidas');
+  const showNormalizar = () => {
+    loadTimeline();
   };
 
   const runAction = async (key, url, successText, payload = undefined) => {
@@ -98,8 +108,16 @@ export default function StockControl() {
       if (key === 'conteo' || key === 'guardar_conteo' || key === 'restaurar') {
         const conteoRes = await axios.get(`${API_URL}/stock_control/conteo`);
         setConteo(conteoRes.data);
+        if (conteoRes.data.conteo?.fecha) setCountDate(formatDate(conteoRes.data.conteo.fecha));
         seedCountValues(conteoRes.data);
         setActiveView('conteo');
+      }
+      if (key === 'normalizar') {
+        const timelineRes = await axios.get(`${API_URL}/stock_control/timeline`, {
+          params: selectedCountDate ? { fecha: selectedCountDate } : {}
+        });
+        setTimeline(timelineRes.data);
+        setActiveView('normalizar');
       }
     } catch (err) {
       console.error(err);
@@ -119,16 +137,12 @@ export default function StockControl() {
   }, [stock]);
 
   const totalStock = status?.stock_actual?.unidades_totales ?? stock.reduce((acc, item) => acc + Number(item.stock_teorico || 0), 0);
-  const pendingDeliveries = status?.entradas?.pendientes || [];
-  const selectedDeliverySet = new Set(selectedDeliveries);
-
-  const toggleDelivery = (archivo) => {
-    setSelectedDeliveries(prev => (
-      prev.includes(archivo)
-        ? prev.filter(item => item !== archivo)
-        : [...prev, archivo]
-    ));
-  };
+  const timelineEvents = timeline?.timeline || [];
+  const timelineChart = timeline?.chart || [];
+  const countGroups = conteo?.grupos || [];
+  const currentCountGroup = countGroups[countGroupIndex];
+  const nextCountGroup = countGroups[countGroupIndex + 1];
+  const previousCountGroup = countGroups[countGroupIndex - 1];
 
   const seedCountValues = (conteoData) => {
     const next = {};
@@ -138,6 +152,7 @@ export default function StockControl() {
       });
     });
     setCountValues(next);
+    setCountGroupIndex(0);
   };
 
   const handleCountValue = (codigo, value) => {
@@ -150,6 +165,20 @@ export default function StockControl() {
       '/stock_control/guardar_conteo',
       data => `Conteo guardado en Excel (${data.fecha_formato}). Productos guardados: ${data.guardados}.`,
       { fecha: countDate, valores: countValues }
+    );
+  };
+
+  const normalizeStock = () => {
+    runAction(
+      'normalizar',
+      '/stock_control/normalizar',
+      data => {
+        const entradas = (data.entradas || []).reduce((acc, item) => acc + (item.procesados?.length || 0), 0);
+        const ventas = (data.ventas_desperdicio || []).reduce((acc, item) => acc + (item.ventas_procesadas?.length || 0), 0);
+        const desperdicio = (data.ventas_desperdicio || []).reduce((acc, item) => acc + (item.desperdicio_procesado?.length || 0), 0);
+        return `Stock normalizado. Entradas: ${entradas}; ventas: ${ventas}; desperdicio: ${desperdicio}.`;
+      },
+      { fecha_conteo: selectedCountDate || timeline?.fecha_conteo }
     );
   };
 
@@ -206,104 +235,93 @@ export default function StockControl() {
           </button>
           <button
             className="btn"
-            onClick={showEntradas}
-            disabled={!!processing}
+            onClick={showNormalizar}
+            disabled={!!processing || loading}
           >
-            <PackageCheck size={18} />
-            Entradas
-          </button>
-          <button
-            className="btn"
-            onClick={showSalidas}
-            disabled={!!processing}
-          >
-            <Trash2 size={18} />
-            Ventas y Desperdicio
+            <Route size={18} />
+            Normalizar Stock
           </button>
         </div>
       </div>
 
-      {activeView === 'entradas' && (
+      {activeView === 'normalizar' && (
         <div className="glass-card" style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: pendingDeliveries.length ? '1rem' : 0 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>
             <div>
-              <h2 style={{ marginBottom: '0.35rem' }}>Entradas</h2>
+              <h2 style={{ marginBottom: '0.35rem' }}>Normalizar Stock</h2>
               <p style={{ color: 'var(--text-muted)' }}>
-                Selecciona que pedidos queres usar. Fecha de corte stock: {formatDate(status?.entradas?.fecha_corte_stock)}
+                Selecciona el conteo real desde donde iniciar el ciclo. El orden aplicado es conteo, entradas, ventas y desperdicio.
               </p>
             </div>
             <div className="stock-actions">
-              {pendingDeliveries.length > 0 && (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    const allSelected = pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo));
-                    setSelectedDeliveries(allSelected ? [] : pendingDeliveries.map(item => item.archivo));
-                  }}
+              <label className="count-date-field">
+                <span>Conteo</span>
+                <select
+                  value={selectedCountDate}
+                  onChange={e => loadTimeline(e.target.value)}
+                  disabled={loading || !!processing}
                 >
-                  {pendingDeliveries.every(item => selectedDeliverySet.has(item.archivo)) ? 'Limpiar seleccion' : 'Seleccionar todos'}
-                </button>
-              )}
+                  {timeline?.conteos?.map(item => (
+                    <option key={item.fecha} value={item.fecha}>
+                      {item.fecha_formato} {item.procesado ? '(aplicado)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 className="btn"
-                onClick={() => runAction('entradas', '/stock_control/procesar_entradas', data => {
-                  const count = data.procesados?.length || 0;
-                  return count ? `Entradas procesadas: ${count}.` : 'No se proceso ninguna entrada.';
-                }, { archivos: selectedDeliveries })}
-                disabled={!!processing || selectedDeliveries.length === 0}
+                onClick={normalizeStock}
+                disabled={!!processing || !timeline?.fecha_conteo}
               >
-                <PackageCheck size={18} className={processing === 'entradas' ? 'spin' : ''} />
-                Procesar Entrada
+                <RefreshCw size={18} className={processing === 'normalizar' ? 'spin' : ''} />
+                Normalizar Stock
               </button>
             </div>
           </div>
-          {pendingDeliveries.length === 0 ? (
-            <p style={{ color: 'var(--text-muted)' }}>No hay pedidos nuevos disponibles para procesar.</p>
-          ) : (
-            <div className="delivery-list">
-              {pendingDeliveries.map(item => (
-                <label className="delivery-option" key={item.archivo}>
-                  <input
-                    type="checkbox"
-                    checked={selectedDeliverySet.has(item.archivo)}
-                    onChange={() => toggleDelivery(item.archivo)}
-                  />
-                  <span>
-                    <strong>{item.archivo}</strong>
-                    <small>{formatDate(item.fecha)} | {item.items?.length || 0} productos</small>
-                  </span>
-                </label>
-              ))}
+
+          <div className="timeline-list">
+            {timelineEvents.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)' }}>No hay informacion pendiente para este ciclo.</p>
+            ) : timelineEvents.map((event, index) => (
+              <div className={`timeline-item ${event.procesado ? 'processed' : ''}`} key={`${event.tipo}-${event.fecha}-${event.titulo}-${index}`}>
+                <div className="timeline-dot">{index + 1}</div>
+                <div>
+                  <strong>{event.titulo}</strong>
+                  <small>{formatDate(event.fecha)} | {event.tipo} | {event.items} items | {qty(event.cantidad_total)} un.</small>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {timelineChart.length > 0 && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <h2 style={{ marginBottom: '1rem' }}>Stock teorico vs real</h2>
+              <div className="stock-chart-list">
+                {timelineChart.map(item => {
+                  const max = Math.max(Number(item.real || 0), Number(item.teorico || 0), 1);
+                  return (
+                    <div className="stock-chart-row" key={item.codigo}>
+                      <div className="stock-chart-label">
+                        <strong>{item.codigo}</strong>
+                        <span>{item.descripcion}</span>
+                      </div>
+                      <div className="stock-chart-bars">
+                        <div className="stock-chart-bar theoretical" style={{ width: `${Math.max(8, (Number(item.teorico || 0) / max) * 100)}%` }}>
+                          Teorico {qty(item.teorico)}
+                        </div>
+                        <div className="stock-chart-bar real" style={{ width: `${Math.max(8, (Number(item.real || 0) / max) * 100)}%` }}>
+                          Real {qty(item.real)}
+                        </div>
+                      </div>
+                      <span className={`badge ${Number(item.diferencia) >= 0 ? 'safe' : 'danger'}`}>
+                        {Number(item.diferencia) > 0 ? '+' : ''}{qty(item.diferencia)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
-        </div>
-      )}
-
-      {activeView === 'salidas' && (
-        <div className="glass-card" style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <div>
-              <h2 style={{ marginBottom: '0.35rem' }}>Ventas y Desperdicio</h2>
-              <p style={{ color: 'var(--text-muted)' }}>
-                Procesa las ventas y los desperdicios nuevos que todavia no fueron aplicados.
-              </p>
-            </div>
-            <button
-              className="btn"
-              onClick={() => runAction('salidas', '/stock_control/procesar_ventas_desperdicio', data => {
-                const ventas = data.ventas_procesadas?.length || 0;
-                const desperdicio = data.desperdicio_procesado?.length || 0;
-                return ventas || desperdicio
-                  ? `Procesadas ventas: ${ventas}; desperdicio: ${desperdicio}.`
-                  : 'No habia ventas ni desperdicios nuevos para procesar.';
-              })}
-              disabled={!!processing}
-            >
-              <Trash2 size={18} className={processing === 'salidas' ? 'spin' : ''} />
-              Procesar Ventas y Desperdicio
-            </button>
-          </div>
         </div>
       )}
 
@@ -334,54 +352,35 @@ export default function StockControl() {
                   </p>
                 )}
               </div>
-              <div className="stock-actions">
-                <label className="count-date-field">
-                  <span>Fecha conteo</span>
-                  <input
-                    type="text"
-                    value={countDate}
-                    onChange={e => setCountDate(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                    inputMode="numeric"
-                    maxLength={8}
-                  />
-                </label>
-                <button
-                  className="btn"
-                  onClick={saveCountToExcel}
-                  disabled={!!processing || countDate.length !== 8}
-                >
-                  <PackageCheck size={18} className={processing === 'guardar_conteo' ? 'spin' : ''} />
-                  Guardar Conteo en Excel
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => runAction('conteo', '/stock_control/procesar_conteo', data => (
-                    data.status === 'skipped'
-                      ? data.message
-                      : `Conteo aplicado. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
-                  ))}
-                  disabled={!!processing || conteo.conteo.procesado}
-                >
-                  <RefreshCw size={18} className={processing === 'conteo' ? 'spin' : ''} />
-                  Aplicar Conteo
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => runAction('restaurar', '/stock_control/restaurar_ultimo_stock', data => (
-                    `Stock restaurado desde el ultimo conteo. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
-                  ))}
-                  disabled={!!processing}
-                >
-                  <PackageCheck size={18} className={processing === 'restaurar' ? 'spin' : ''} />
-                  Restaurar Ultimo Stock
-                </button>
-              </div>
             </div>
           </div>
 
-          {conteo.grupos.map(group => (
-            <div className="stock-location-block" key={group.ubicacion}>
-              <h2>{group.ubicacion}</h2>
+          {currentCountGroup && (
+            <div className="stock-location-block count-location-panel" key={currentCountGroup.ubicacion}>
+              <div className="count-location-header">
+                <div>
+                  <span className="count-location-progress">
+                    {countGroupIndex + 1} de {countGroups.length}
+                  </span>
+                  <h2>{currentCountGroup.ubicacion}</h2>
+                  {nextCountGroup ? (
+                    <p>Siguiente: {nextCountGroup.ubicacion}</p>
+                  ) : (
+                    <p>Ultima ubicacion. Al terminar, guarda el conteo.</p>
+                  )}
+                </div>
+                <label className="count-date-field">
+                  <span>Ir a ubicacion</span>
+                  <select
+                    value={countGroupIndex}
+                    onChange={e => setCountGroupIndex(Number(e.target.value))}
+                  >
+                    {countGroups.map((group, index) => (
+                      <option key={group.ubicacion} value={index}>{group.ubicacion}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <div className="table-container">
                 <table>
                   <thead>
@@ -394,8 +393,8 @@ export default function StockControl() {
                     </tr>
                   </thead>
                   <tbody>
-                    {group.productos.map(item => (
-                      <tr key={`${group.ubicacion}-${item.codigo}`}>
+                    {currentCountGroup.productos.map(item => (
+                      <tr key={`${currentCountGroup.ubicacion}-${item.codigo}`}>
                         <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{item.codigo}</td>
                         <td style={{ fontWeight: 500 }}>{item.descripcion}</td>
                         <td>{qty(item.stock_actual)}</td>
@@ -405,7 +404,7 @@ export default function StockControl() {
                             type="number"
                             value={countValues[item.codigo] ?? ''}
                             onChange={e => handleCountValue(item.codigo, e.target.value)}
-                            step="0.001"
+                            step="0.5"
                             inputMode="decimal"
                           />
                         </td>
@@ -419,8 +418,58 @@ export default function StockControl() {
                   </tbody>
                 </table>
               </div>
+              <div className="count-location-nav">
+                <button
+                  className="btn"
+                  onClick={() => setCountGroupIndex(index => Math.max(0, index - 1))}
+                  disabled={!previousCountGroup}
+                >
+                  <ChevronLeft size={18} />
+                  {previousCountGroup ? previousCountGroup.ubicacion : 'Anterior'}
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => setCountGroupIndex(index => Math.min(countGroups.length - 1, index + 1))}
+                  disabled={!nextCountGroup}
+                >
+                  {nextCountGroup ? `Siguiente: ${nextCountGroup.ubicacion}` : 'Fin del conteo'}
+                  <ChevronRight size={18} />
+                </button>
+              </div>
             </div>
-          ))}
+          )}
+          <div className="glass-card count-save-panel">
+            <label className="count-date-field">
+              <span>Fecha conteo</span>
+              <input
+                type="text"
+                value={countDate}
+                onChange={e => setCountDate(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                inputMode="numeric"
+                maxLength={8}
+              />
+            </label>
+            <div className="stock-actions">
+              <button
+                className="btn"
+                onClick={saveCountToExcel}
+                disabled={!!processing || countDate.length !== 8}
+              >
+                <PackageCheck size={18} className={processing === 'guardar_conteo' ? 'spin' : ''} />
+                Guardar
+              </button>
+              <button
+                className="btn"
+                onClick={() => runAction('restaurar', '/stock_control/restaurar_ultimo_stock', data => (
+                  `Stock restaurado desde el ultimo conteo. Ajustes +${qty(data.ajustes_positivos)} / -${qty(data.ajustes_negativos)}.`
+                ))}
+                disabled={!!processing}
+              >
+                <PackageCheck size={18} className={processing === 'restaurar' ? 'spin' : ''} />
+                Restaurar Ultimo Stock
+              </button>
+            </div>
+          </div>
         </>
       ) : activeView === 'actual' ? (
         <>
