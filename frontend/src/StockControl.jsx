@@ -159,6 +159,14 @@ export default function StockControl() {
     setCountValues(prev => ({ ...prev, [codigo]: value }));
   };
 
+  const adjustCountValue = (codigo, delta) => {
+    setCountValues(prev => {
+      const current = Number(prev[codigo] || 0);
+      const next = Math.max(0, Math.round((current + delta) * 1000) / 1000);
+      return { ...prev, [codigo]: String(next) };
+    });
+  };
+
   const saveCountToExcel = () => {
     runAction(
       'guardar_conteo',
@@ -381,23 +389,21 @@ export default function StockControl() {
                   </select>
                 </label>
               </div>
-              <div className="table-container">
+              <div className="table-container count-table-container">
                 <table>
                   <thead>
                     <tr>
-                      <th>Codigo</th>
                       <th>Producto</th>
-                      <th>Actual App</th>
                       <th>Conteo</th>
-                      <th>Diferencia</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {currentCountGroup.productos.map(item => (
                       <tr key={`${currentCountGroup.ubicacion}-${item.codigo}`}>
-                        <td style={{ fontFamily: 'monospace', color: 'var(--text-muted)' }}>{item.codigo}</td>
-                        <td style={{ fontWeight: 500 }}>{item.descripcion}</td>
-                        <td>{qty(item.stock_actual)}</td>
+                        <td className="count-product-cell">
+                          <span>{item.descripcion}</span>
+                        </td>
                         <td>
                           <input
                             className="count-input"
@@ -409,9 +415,10 @@ export default function StockControl() {
                           />
                         </td>
                         <td>
-                          <span className={`badge ${Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) === 0 ? 'safe' : Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) > 0 ? 'warning-med' : 'danger'}`}>
-                            {Number((countValues[item.codigo] || 0) - (item.stock_actual || 0)) > 0 ? '+' : ''}{qty(Number(countValues[item.codigo] || 0) - Number(item.stock_actual || 0))}
-                          </span>
+                          <div className="count-stepper">
+                            <button type="button" onClick={() => adjustCountValue(item.codigo, -0.5)}>-</button>
+                            <button type="button" onClick={() => adjustCountValue(item.codigo, 0.5)}>+</button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -340,6 +340,65 @@ tr:hover {
   text-align: right;
 }
 
+.count-table-container table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.count-table-container th,
+.count-table-container td {
+  padding: 0.75rem;
+}
+
+.count-table-container th:first-child,
+.count-table-container td:first-child {
+  width: auto;
+}
+
+.count-table-container th:nth-child(2),
+.count-table-container td:nth-child(2) {
+  width: 104px;
+}
+
+.count-table-container th:nth-child(3),
+.count-table-container td:nth-child(3) {
+  width: 116px;
+}
+
+.count-product-cell {
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.count-product-cell span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.count-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
+  gap: 0.5rem;
+  justify-content: end;
+}
+
+.count-stepper button {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  color: white;
+  background: rgba(59, 130, 246, 0.28);
+  font: inherit;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.count-stepper button:first-child {
+  background: rgba(239, 68, 68, 0.25);
+}
+
 .cashflow-form {
   margin-bottom: 2rem;
 }
