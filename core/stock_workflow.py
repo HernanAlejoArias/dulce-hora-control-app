@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List
 
@@ -296,6 +297,13 @@ def _format_qty(value: float) -> float | int:
     return int(rounded) if rounded.is_integer() else rounded
 
 
+def _normalize_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text)
+
+
 def _parse_count_date(value: str | None) -> datetime:
     raw = str(value or "").strip()
     for fmt in ("%Y%m%d", "%Y-%m-%d"):
@@ -322,18 +330,30 @@ def load_ubicaciones() -> Dict[str, Dict[str, str]]:
     if not os.path.exists(path):
         return ubicaciones
 
-    df = pd.read_excel(path, header=0)
-    for col in df.columns[1:]:
-        codigo = str(col).strip()
-        if not codigo.isdigit():
-            continue
-        articulo = str(df.iloc[0][col]).strip() if len(df) and pd.notna(df.iloc[0][col]) else ""
+    productos = load_json("productos.json")
+    desc_to_code = {
+        _normalize_text(p.get("descripcion")): str(p.get("codigo_producto"))
+        for p in productos
+        if p.get("codigo_producto") and p.get("descripcion")
+    }
+
+    wb = load_workbook(path, data_only=True)
+    ws = wb.active
+    for col_idx in range(2, ws.max_column + 1):
+        raw_code = ws.cell(row=1, column=col_idx).value
+        articulo = str(ws.cell(row=2, column=col_idx).value or "").strip()
         ubicacion = "Sin ubicacion"
-        for idx in range(1, len(df)):
-            val = df.iloc[idx][col]
-            if pd.notna(val):
+        for row_idx in range(3, ws.max_row + 1):
+            val = ws.cell(row=row_idx, column=col_idx).value
+            if val not in (None, ""):
                 ubicacion = str(val).strip()
                 break
+
+        codigo = str(raw_code or "").strip()
+        if not codigo.isdigit() and articulo:
+            codigo = desc_to_code.get(_normalize_text(articulo), "")
+        if not codigo.isdigit():
+            continue
         ubicaciones[codigo] = {"ubicacion": ubicacion, "articulo_planilla": articulo}
     return ubicaciones
 
@@ -367,11 +387,11 @@ def list_stock_counts() -> List[Dict[str, Any]]:
             codigo = str(col).strip()
             if not codigo.isdigit():
                 continue
+            orden.append(codigo)
             cantidad = _safe_float(row[col])
             if cantidad is None:
                 continue
             valores[codigo] = cantidad
-            orden.append(codigo)
 
         counts.append({
             "fecha": fecha.strftime("%Y-%m-%d"),
@@ -464,7 +484,8 @@ def _stock_cutoff_date(state: Dict[str, Any] | None = None) -> str | None:
 
 def get_conteo_planilla() -> Dict[str, Any]:
     productos = load_json("productos.json")
-    prod_dict = {str(p.get("codigo_producto")): p for p in productos if p.get("activo", True)}
+    prod_dict = {str(p.get("codigo_producto")): p for p in productos if p.get("codigo_producto")}
+    active_codes = [str(p.get("codigo_producto")) for p in productos if p.get("codigo_producto") and p.get("activo", True)]
     ubicaciones = load_ubicaciones()
     stock = _stock_actual()
     conteo = load_latest_stock_count()
@@ -473,18 +494,20 @@ def get_conteo_planilla() -> Dict[str, Any]:
 
     grupos: Dict[str, List[Dict[str, Any]]] = {}
     orden = conteo["orden"] if conteo else list(prod_dict.keys())
-    codigos = orden + [cod for cod in prod_dict if cod not in orden]
+    codigos = orden + [cod for cod in active_codes if cod not in orden]
 
     for codigo in codigos:
-        prod = prod_dict.get(codigo)
-        if not prod:
+        prod = prod_dict.get(codigo, {})
+        ubicacion_info = ubicaciones.get(codigo, {})
+        descripcion = prod.get("descripcion") or ubicacion_info.get("articulo_planilla", "")
+        if not descripcion:
             continue
-        ubicacion = ubicaciones.get(codigo, {}).get("ubicacion", "Sin ubicacion")
+        ubicacion = ubicacion_info.get("ubicacion", "Sin ubicacion")
         contado = conteo["valores"].get(codigo) if conteo else None
         actual = stock.get(codigo, 0.0)
         item = {
             "codigo": codigo,
-            "descripcion": prod.get("descripcion", ubicaciones.get(codigo, {}).get("articulo_planilla", "")),
+            "descripcion": descripcion,
             "categoria": prod.get("categoria", ""),
             "ubicacion": ubicacion,
             "stock_actual": _format_qty(actual),
@@ -497,7 +520,7 @@ def get_conteo_planilla() -> Dict[str, Any]:
         "conteo": {
             "fecha": conteo["fecha"] if conteo else None,
             "archivo": conteo["archivo"] if conteo else None,
-            "cantidad_productos": len(conteo["valores"]) if conteo else 0,
+            "cantidad_productos": len(conteo["orden"]) if conteo else 0,
             "procesado": bool(conteo and conteo["fecha"] in processed_dates),
             "es_futura": bool(conteo and conteo["es_futura"]),
         },
